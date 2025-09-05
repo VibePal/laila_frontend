@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Light, playful palette for bakery */
+    --background: 20 33% 98%; /* cream */
+    --foreground: 24 15% 15%; /* deep cocoa text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 24 15% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 15% 15%;
+
+    /* Brand */
+    --primary: 340 80% 60%; /* rose */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 18 60% 95%; /* soft peach */
+    --secondary-foreground: 24 15% 20%;
+
+    --muted: 18 40% 96%;
+    --muted-foreground: 24 10% 40%;
+
+    --accent: 25 90% 62%; /* apricot accent */
+    --accent-foreground: 24 15% 15%;
+
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 18 30% 90%;
+    --input: 18 30% 90%;
+    --ring: 340 80% 60%;
+
+    --radius: 1rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 24 15% 15%;
+    --sidebar-primary: 340 80% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 18 60% 95%;
+    --sidebar-accent-foreground: 24 15% 15%;
+    --sidebar-border: 18 30% 90%;
+    --sidebar-ring: 340 80% 60%;
+
+    /* Gradients & shadows */
+    --gradient-hero: linear-gradient(135deg, hsl(340 80% 65% / 0.95), hsl(25 90% 65% / 0.95));
+    --gradient-aurora: radial-gradient(40% 60% at 20% 20%, hsl(340 80% 60% / 0.18), transparent 60%),
+      radial-gradient(40% 60% at 80% 30%, hsl(25 90% 62% / 0.18), transparent 60%),
+      radial-gradient(60% 40% at 50% 80%, hsl(340 70% 55% / 0.14), transparent 60%);
+    --shadow-brand-glow: 0 10px 30px -10px hsl(340 80% 60% / 0.35), 0 6px 20px -12px hsl(25 90% 62% / 0.3);
+    --shadow-brand-glow-strong: 0 18px 50px -12px hsl(340 80% 60% / 0.45), 0 10px 32px -14px hsl(25 90% 62% / 0.4);
+  }
+
+  .dark {
+    --background: 225 40% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 228 35% 10%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 228 35% 10%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 260 90% 66%;
+    --primary-foreground: 260 100% 98%;
+
+    --secondary: 222 40% 18%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 25% 20%;
+    --muted-foreground: 220 15% 70%;
+
+    --accent: 200 95% 60%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 223 24% 22%;
+    --input: 223 24% 22%;
+    --ring: 260 90% 66%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  .bg-hero { background-image: var(--gradient-hero); }
+  .bg-aurora {
+    position: absolute;
+    inset: 0;
+    background: var(--gradient-aurora);
+    filter: blur(40px) saturate(120%);
+    opacity: 0.6;
+    animation: aurora 12s ease-in-out infinite;
+    mask-image: radial-gradient(60% 50% at 50% 20%, black, transparent 70%);
+  }
+  .shadow-brand-glow { box-shadow: var(--shadow-brand-glow); }
+  .shadow-brand-glow-strong { box-shadow: var(--shadow-brand-glow-strong); }
+}
+
+/* Keyframes to support custom utilities (in addition to Tailwind) */
+@keyframes aurora {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
