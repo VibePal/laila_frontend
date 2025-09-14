@@ -11,7 +11,6 @@ import {
   Menu,
   Plus,
   ShoppingCart,
-  FileText,
   Filter,
   RefreshCw,
   User,
@@ -28,7 +27,7 @@ import CreateOrder from "./admin/CreateOrder";
 const getCurrentUser = (): string => {
   // This would typically come from your authentication system
   // For now, we'll use a simple approach
-  const currentUser = localStorage.getItem('currentUser') || 'staff';
+  const currentUser = localStorage.getItem('username') || localStorage.getItem('currentUser') || 'staff';
   return currentUser;
 };
 
@@ -109,7 +108,6 @@ const StaffDashboard = () => {
   const sidebarItems = [
     { icon: Plus, label: "Create Order", href: "create-order" },
     { icon: ShoppingCart, label: "Orders", href: "orders" },
-    { icon: FileText, label: "Manage Order", href: "manage-order" },
   ];
 
 
@@ -134,7 +132,6 @@ const StaffDashboard = () => {
       default: return paymentType;
     }
   };
-
 
 
 
@@ -330,33 +327,12 @@ const StaffDashboard = () => {
     </div>
   );
 
-  const renderManageOrder = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Manage Order</h2>
-        <p className="text-muted-foreground">View and update existing orders</p>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Order Management</CardTitle>
-          <CardDescription>View, edit, and update order status</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">Order management interface will be implemented here.</p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
   const renderContent = () => {
     switch (activeSection) {
       case "create-order":
         return renderCreateOrder();
       case "orders":
         return renderOrders();
-      case "manage-order":
-        return renderManageOrder();
       default:
         return (
           <div>
@@ -436,4 +412,3 @@ const StaffDashboard = () => {
 };
 
 export default StaffDashboard;
-

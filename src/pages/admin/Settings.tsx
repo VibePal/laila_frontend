@@ -8,28 +8,58 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { Toaster } from "@/components/ui/toaster";
 import { 
-  Settings, 
+  Settings as SettingsIcon, 
   Plus,
   Edit,
   Trash2,
   Building,
   Package,
   ShoppingBag,
-  DollarSign
+  DollarSign,
+  Loader2
 } from "lucide-react";
+import { 
+  createSupplier,
+  getSuppliersFromAPI,
+  updateSupplierAPI,
+  deleteSupplierAPI,
+  createItem,
+  getItemsFromAPI,
+  updateItemAPI,
+  deleteItemAPI,
+  createPackagingType,
+  getPackagingTypesFromAPI,
+  updatePackagingTypeAPI,
+  deletePackagingTypeAPI,
+  createOverheadCostType,
+  getOverheadCostTypesFromAPI,
+  updateOverheadCostTypeAPI,
+  deleteOverheadCostTypeAPI,
+  SupplierApiResponse,
+  ItemApiResponse,
+  PackagingTypeApiResponse,
+  OverheadCostTypeApiResponse,
+  ApiResponse 
+} from "@/lib/dataService";
 
 interface Supplier {
   id: string;
   name: string;
-  contact?: string;
-  address?: string;
+  contact: string;
+  address: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface Item {
   id: string;
   name: string;
   unit: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface PackagingType {
@@ -37,15 +67,20 @@ interface PackagingType {
   name: string;
   description?: string;
   price: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface OverheadCostType {
   id: string;
   name: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState("suppliers");
+  const { toast } = useToast();
   
   // Suppliers state
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -57,6 +92,10 @@ const Settings = () => {
     contact: "",
     address: ""
   });
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [isCreatingSupplier, setIsCreatingSupplier] = useState(false);
+  const [isUpdatingSupplier, setIsUpdatingSupplier] = useState(false);
+  const [isDeletingSupplier, setIsDeletingSupplier] = useState(false);
 
   // Items state
   const [items, setItems] = useState<Item[]>([]);
@@ -67,6 +106,10 @@ const Settings = () => {
     name: "",
     unit: ""
   });
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+  const [isUpdatingItem, setIsUpdatingItem] = useState(false);
+  const [isDeletingItem, setIsDeletingItem] = useState(false);
 
   // Packaging Types state
   const [packagingTypes, setPackagingTypes] = useState<PackagingType[]>([]);
@@ -82,6 +125,10 @@ const Settings = () => {
     description: "",
     price: ""
   });
+  const [isLoadingPackagingTypes, setIsLoadingPackagingTypes] = useState(false);
+  const [isCreatingPackagingType, setIsCreatingPackagingType] = useState(false);
+  const [isUpdatingPackagingType, setIsUpdatingPackagingType] = useState(false);
+  const [isDeletingPackagingType, setIsDeletingPackagingType] = useState(false);
 
   // Overhead Cost Types state
   const [overheadCostTypes, setOverheadCostTypes] = useState<OverheadCostType[]>([]);
@@ -91,6 +138,10 @@ const Settings = () => {
   const [newOverheadCost, setNewOverheadCost] = useState({
     name: ""
   });
+  const [isLoadingOverheadCostTypes, setIsLoadingOverheadCostTypes] = useState(false);
+  const [isCreatingOverheadCostType, setIsCreatingOverheadCostType] = useState(false);
+  const [isUpdatingOverheadCostType, setIsUpdatingOverheadCostType] = useState(false);
+  const [isDeletingOverheadCostType, setIsDeletingOverheadCostType] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -101,141 +152,319 @@ const Settings = () => {
   }, []);
 
   // Suppliers functions
-  const loadSuppliers = () => {
+  const loadSuppliers = async () => {
+    setIsLoadingSuppliers(true);
     try {
-      const savedSuppliers = localStorage.getItem('laila_suppliers');
-      if (savedSuppliers) {
-        setSuppliers(JSON.parse(savedSuppliers));
+      const response: ApiResponse<SupplierApiResponse[]> = await getSuppliersFromAPI();
+      if (response.success && response.data) {
+        setSuppliers(response.data);
+      } else {
+        console.error('Failed to load suppliers:', response.error);
+        setSuppliers([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load suppliers",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error loading suppliers:', error);
+      setSuppliers([]);
+      toast({
+        title: "Error",
+        description: "Failed to load suppliers",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingSuppliers(false);
     }
   };
 
-  const saveSuppliers = (suppliersList: Supplier[]) => {
+  const handleAddSupplier = async () => {
+    if (!newSupplier.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Supplier name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCreatingSupplier(true);
     try {
-      localStorage.setItem('laila_suppliers', JSON.stringify(suppliersList));
+      const response: ApiResponse<SupplierApiResponse> = await createSupplier({
+        name: newSupplier.name.trim(),
+        contact: newSupplier.contact.trim(),
+        address: newSupplier.address.trim()
+      });
+
+      if (response.success && response.data) {
+        setSuppliers([...suppliers, response.data]);
+        setNewSupplier({ name: "", contact: "", address: "" });
+        setIsAddSupplierDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Supplier created successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create supplier",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error('Error saving suppliers:', error);
+      console.error('Error creating supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create supplier",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingSupplier(false);
     }
   };
 
-  const handleAddSupplier = () => {
-    if (newSupplier.name.trim()) {
-      const supplier: Supplier = {
-        id: Date.now().toString(),
+  const handleEditSupplier = async () => {
+    if (!editingSupplier || !newSupplier.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Supplier name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingSupplier(true);
+    try {
+      const response: ApiResponse<SupplierApiResponse> = await updateSupplierAPI(editingSupplier.id, {
         name: newSupplier.name.trim(),
-        contact: newSupplier.contact.trim() || undefined,
-        address: newSupplier.address.trim() || undefined
-      };
-      
-      const updatedSuppliers = [...suppliers, supplier];
-      setSuppliers(updatedSuppliers);
-      saveSuppliers(updatedSuppliers);
-      
-      setNewSupplier({ name: "", contact: "", address: "" });
-      setIsAddSupplierDialogOpen(false);
+        contact: newSupplier.contact.trim(),
+        address: newSupplier.address.trim()
+      });
+
+      if (response.success && response.data) {
+        const updatedSuppliers = suppliers.map(s => 
+          s.id === editingSupplier.id ? response.data! : s
+        );
+        setSuppliers(updatedSuppliers);
+        setEditingSupplier(null);
+        setNewSupplier({ name: "", contact: "", address: "" });
+        setIsEditSupplierDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Supplier updated successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to update supplier",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update supplier",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingSupplier(false);
     }
   };
 
-  const handleEditSupplier = () => {
-    if (editingSupplier && newSupplier.name.trim()) {
-      const updatedSupplier: Supplier = {
-        ...editingSupplier,
-        name: newSupplier.name.trim(),
-        contact: newSupplier.contact.trim() || undefined,
-        address: newSupplier.address.trim() || undefined
-      };
+  const handleDeleteSupplier = async (supplierId: string) => {
+    setIsDeletingSupplier(true);
+    try {
+      const response: ApiResponse<void> = await deleteSupplierAPI(supplierId);
       
-      const updatedSuppliers = suppliers.map(supplier => 
-        supplier.id === editingSupplier.id ? updatedSupplier : supplier
-      );
-      setSuppliers(updatedSuppliers);
-      saveSuppliers(updatedSuppliers);
-      
-      setEditingSupplier(null);
-      setNewSupplier({ name: "", contact: "", address: "" });
-      setIsEditSupplierDialogOpen(false);
+      if (response.success) {
+        const updatedSuppliers = suppliers.filter(s => s.id !== supplierId);
+        setSuppliers(updatedSuppliers);
+        toast({
+          title: "Success",
+          description: "Supplier deleted successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete supplier",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete supplier",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingSupplier(false);
     }
-  };
-
-  const handleDeleteSupplier = (supplierId: string) => {
-    const updatedSuppliers = suppliers.filter(supplier => supplier.id !== supplierId);
-    setSuppliers(updatedSuppliers);
-    saveSuppliers(updatedSuppliers);
   };
 
   const openEditSupplierDialog = (supplier: Supplier) => {
     setEditingSupplier(supplier);
     setNewSupplier({
       name: supplier.name,
-      contact: supplier.contact || "",
-      address: supplier.address || ""
+      contact: supplier.contact,
+      address: supplier.address
     });
     setIsEditSupplierDialogOpen(true);
   };
 
   // Items functions
-  const loadItems = () => {
+  const loadItems = async () => {
+    setIsLoadingItems(true);
     try {
-      const savedItems = localStorage.getItem('laila_items');
-      if (savedItems) {
-        setItems(JSON.parse(savedItems));
+      const response: ApiResponse<ItemApiResponse[]> = await getItemsFromAPI();
+      if (response.success && response.data) {
+        setItems(response.data);
+      } else {
+        console.error('Failed to load items:', response.error);
+        setItems([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load items",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error loading items:', error);
+      setItems([]);
+      toast({
+        title: "Error",
+        description: "Failed to load items",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingItems(false);
     }
   };
 
-  const saveItems = (itemsList: Item[]) => {
+  const handleAddItem = async () => {
+    if (!newItem.name.trim() || !newItem.unit.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Item name and unit are required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCreatingItem(true);
     try {
-      localStorage.setItem('laila_items', JSON.stringify(itemsList));
+      const response: ApiResponse<ItemApiResponse> = await createItem({
+        name: newItem.name.trim(),
+        unit: newItem.unit.trim()
+      });
+
+      if (response.success && response.data) {
+        setItems([...items, response.data]);
+        setNewItem({ name: "", unit: "" });
+        setIsAddItemDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Item created successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create item",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error('Error saving items:', error);
+      console.error('Error creating item:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create item",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingItem(false);
     }
   };
 
-  const handleAddItem = () => {
-    if (newItem.name.trim() && newItem.unit.trim()) {
-      const item: Item = {
-        id: Date.now().toString(),
+  const handleEditItem = async () => {
+    if (!editingItem || !newItem.name.trim() || !newItem.unit.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Item name and unit are required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingItem(true);
+    try {
+      const response: ApiResponse<ItemApiResponse> = await updateItemAPI(editingItem.id, {
         name: newItem.name.trim(),
         unit: newItem.unit.trim()
-      };
-      
-      const updatedItems = [...items, item];
-      setItems(updatedItems);
-      saveItems(updatedItems);
-      
-      setNewItem({ name: "", unit: "" });
-      setIsAddItemDialogOpen(false);
+      });
+
+      if (response.success && response.data) {
+        const updatedItems = items.map(item => 
+          item.id === editingItem.id ? response.data! : item
+        );
+        setItems(updatedItems);
+        setEditingItem(null);
+        setNewItem({ name: "", unit: "" });
+        setIsEditItemDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Item updated successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to update item",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error updating item:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update item",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingItem(false);
     }
   };
 
-  const handleEditItem = () => {
-    if (editingItem && newItem.name.trim() && newItem.unit.trim()) {
-      const updatedItem: Item = {
-        ...editingItem,
-        name: newItem.name.trim(),
-        unit: newItem.unit.trim()
-      };
+  const handleDeleteItem = async (itemId: string) => {
+    setIsDeletingItem(true);
+    try {
+      const response: ApiResponse<void> = await deleteItemAPI(itemId);
       
-      const updatedItems = items.map(item => 
-        item.id === editingItem.id ? updatedItem : item
-      );
-      setItems(updatedItems);
-      saveItems(updatedItems);
-      
-      setEditingItem(null);
-      setNewItem({ name: "", unit: "" });
-      setIsEditItemDialogOpen(false);
+      if (response.success) {
+        const updatedItems = items.filter(item => item.id !== itemId);
+        setItems(updatedItems);
+        toast({
+          title: "Success",
+          description: "Item deleted successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete item",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete item",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingItem(false);
     }
-  };
-
-  const handleDeleteItem = (itemId: string) => {
-    const updatedItems = items.filter(item => item.id !== itemId);
-    setItems(updatedItems);
-    saveItems(updatedItems);
   };
 
   const openEditItemDialog = (item: Item) => {
@@ -248,68 +477,177 @@ const Settings = () => {
   };
 
   // Packaging Types functions
-  const loadPackagingTypes = () => {
+  const loadPackagingTypes = async () => {
+    setIsLoadingPackagingTypes(true);
     try {
-      const savedPackagingTypes = localStorage.getItem('laila_packaging_types');
-      if (savedPackagingTypes) {
-        setPackagingTypes(JSON.parse(savedPackagingTypes));
+      const response: ApiResponse<PackagingTypeApiResponse[]> = await getPackagingTypesFromAPI();
+      if (response.success && response.data) {
+        setPackagingTypes(response.data);
+      } else {
+        console.error('Failed to load packaging types:', response.error);
+        setPackagingTypes([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load packaging types",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error loading packaging types:', error);
+      setPackagingTypes([]);
+      toast({
+        title: "Error",
+        description: "Failed to load packaging types",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPackagingTypes(false);
     }
   };
 
-  const savePackagingTypes = (packagingTypesList: PackagingType[]) => {
+  const handleAddPackaging = async () => {
+    if (!newPackaging.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Packaging type name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const price = parseFloat(newPackaging.price);
+    if (isNaN(price) || price < 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid price",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCreatingPackagingType(true);
     try {
-      localStorage.setItem('laila_packaging_types', JSON.stringify(packagingTypesList));
+      const response: ApiResponse<PackagingTypeApiResponse> = await createPackagingType({
+        name: newPackaging.name.trim(),
+        description: newPackaging.description.trim() || undefined,
+        price: price
+      });
+
+      if (response.success && response.data) {
+        setPackagingTypes([...packagingTypes, response.data]);
+        setNewPackaging({ name: "", description: "", price: "" });
+        setIsAddPackagingDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Packaging type created successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create packaging type",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error('Error saving packaging types:', error);
+      console.error('Error creating packaging type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create packaging type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingPackagingType(false);
     }
   };
 
-  const handleAddPackaging = () => {
-    if (newPackaging.name.trim()) {
-      const packagingType: PackagingType = {
-        id: Date.now().toString(),
+  const handleEditPackaging = async () => {
+    if (!editingPackaging || !newPackaging.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Packaging type name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const price = parseFloat(newPackaging.price);
+    if (isNaN(price) || price < 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid price",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingPackagingType(true);
+    try {
+      const response: ApiResponse<PackagingTypeApiResponse> = await updatePackagingTypeAPI(editingPackaging.id, {
         name: newPackaging.name.trim(),
         description: newPackaging.description.trim() || undefined,
-        price: parseFloat(newPackaging.price) || 0
-      };
-      
-      const updatedPackagingTypes = [...packagingTypes, packagingType];
-      setPackagingTypes(updatedPackagingTypes);
-      savePackagingTypes(updatedPackagingTypes);
-      
-      setNewPackaging({ name: "", description: "", price: "" });
-      setIsAddPackagingDialogOpen(false);
+        price: price
+      });
+
+      if (response.success && response.data) {
+        const updatedPackagingTypes = packagingTypes.map(packaging => 
+          packaging.id === editingPackaging.id ? response.data! : packaging
+        );
+        setPackagingTypes(updatedPackagingTypes);
+        setEditingPackaging(null);
+        setNewPackaging({ name: "", description: "", price: "" });
+        setIsEditPackagingDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Packaging type updated successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to update packaging type",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error updating packaging type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update packaging type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingPackagingType(false);
     }
   };
 
-  const handleEditPackaging = () => {
-    if (editingPackaging && newPackaging.name.trim()) {
-      const updatedPackaging: PackagingType = {
-        ...editingPackaging,
-        name: newPackaging.name.trim(),
-        description: newPackaging.description.trim() || undefined,
-        price: parseFloat(newPackaging.price) || 0
-      };
+  const handleDeletePackaging = async (packagingId: string) => {
+    setIsDeletingPackagingType(true);
+    try {
+      const response: ApiResponse<void> = await deletePackagingTypeAPI(packagingId);
       
-      const updatedPackagingTypes = packagingTypes.map(packaging => 
-        packaging.id === editingPackaging.id ? updatedPackaging : packaging
-      );
-      setPackagingTypes(updatedPackagingTypes);
-      savePackagingTypes(updatedPackagingTypes);
-      
-      setEditingPackaging(null);
-      setNewPackaging({ name: "", description: "", price: "" });
-      setIsEditPackagingDialogOpen(false);
+      if (response.success) {
+        const updatedPackagingTypes = packagingTypes.filter(packaging => packaging.id !== packagingId);
+        setPackagingTypes(updatedPackagingTypes);
+        toast({
+          title: "Success",
+          description: "Packaging type deleted successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete packaging type",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting packaging type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete packaging type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingPackagingType(false);
     }
-  };
-
-  const handleDeletePackaging = (packagingId: string) => {
-    const updatedPackagingTypes = packagingTypes.filter(packaging => packaging.id !== packagingId);
-    setPackagingTypes(updatedPackagingTypes);
-    savePackagingTypes(updatedPackagingTypes);
   };
 
   const openEditPackagingDialog = (packaging: PackagingType) => {
@@ -323,64 +661,153 @@ const Settings = () => {
   };
 
   // Overhead Cost Types functions
-  const loadOverheadCostTypes = () => {
+  const loadOverheadCostTypes = async () => {
+    setIsLoadingOverheadCostTypes(true);
     try {
-      const savedOverheadCostTypes = localStorage.getItem('laila_overhead_cost_types');
-      if (savedOverheadCostTypes) {
-        setOverheadCostTypes(JSON.parse(savedOverheadCostTypes));
+      const response: ApiResponse<OverheadCostTypeApiResponse[]> = await getOverheadCostTypesFromAPI();
+      if (response.success && response.data) {
+        setOverheadCostTypes(response.data);
+      } else {
+        console.error('Failed to load overhead cost types:', response.error);
+        setOverheadCostTypes([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load overhead cost types",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error loading overhead cost types:', error);
+      setOverheadCostTypes([]);
+      toast({
+        title: "Error",
+        description: "Failed to load overhead cost types",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingOverheadCostTypes(false);
     }
   };
 
-  const saveOverheadCostTypes = (overheadCostTypesList: OverheadCostType[]) => {
+  const handleAddOverheadCost = async () => {
+    if (!newOverheadCost.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Overhead cost type name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCreatingOverheadCostType(true);
     try {
-      localStorage.setItem('laila_overhead_cost_types', JSON.stringify(overheadCostTypesList));
+      const response: ApiResponse<OverheadCostTypeApiResponse> = await createOverheadCostType({
+        name: newOverheadCost.name.trim()
+      });
+
+      if (response.success && response.data) {
+        setOverheadCostTypes([...overheadCostTypes, response.data]);
+        setNewOverheadCost({ name: "" });
+        setIsAddOverheadCostDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Overhead cost type created successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create overhead cost type",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error('Error saving overhead cost types:', error);
+      console.error('Error creating overhead cost type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create overhead cost type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingOverheadCostType(false);
     }
   };
 
-  const handleAddOverheadCost = () => {
-    if (newOverheadCost.name.trim()) {
-      const overheadCostType: OverheadCostType = {
-        id: Date.now().toString(),
+  const handleEditOverheadCost = async () => {
+    if (!editingOverheadCost || !newOverheadCost.name.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Overhead cost type name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingOverheadCostType(true);
+    try {
+      const response: ApiResponse<OverheadCostTypeApiResponse> = await updateOverheadCostTypeAPI(editingOverheadCost.id, {
         name: newOverheadCost.name.trim()
-      };
-      
-      const updatedOverheadCostTypes = [...overheadCostTypes, overheadCostType];
-      setOverheadCostTypes(updatedOverheadCostTypes);
-      saveOverheadCostTypes(updatedOverheadCostTypes);
-      
-      setNewOverheadCost({ name: "" });
-      setIsAddOverheadCostDialogOpen(false);
+      });
+
+      if (response.success && response.data) {
+        const updatedOverheadCostTypes = overheadCostTypes.map(overheadCost => 
+          overheadCost.id === editingOverheadCost.id ? response.data! : overheadCost
+        );
+        setOverheadCostTypes(updatedOverheadCostTypes);
+        setEditingOverheadCost(null);
+        setNewOverheadCost({ name: "" });
+        setIsEditOverheadCostDialogOpen(false);
+        toast({
+          title: "Success",
+          description: "Overhead cost type updated successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to update overhead cost type",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error updating overhead cost type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update overhead cost type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingOverheadCostType(false);
     }
   };
 
-  const handleEditOverheadCost = () => {
-    if (editingOverheadCost && newOverheadCost.name.trim()) {
-      const updatedOverheadCost: OverheadCostType = {
-        ...editingOverheadCost,
-        name: newOverheadCost.name.trim()
-      };
+  const handleDeleteOverheadCost = async (overheadCostId: string) => {
+    setIsDeletingOverheadCostType(true);
+    try {
+      const response: ApiResponse<void> = await deleteOverheadCostTypeAPI(overheadCostId);
       
-      const updatedOverheadCostTypes = overheadCostTypes.map(overheadCost => 
-        overheadCost.id === editingOverheadCost.id ? updatedOverheadCost : overheadCost
-      );
-      setOverheadCostTypes(updatedOverheadCostTypes);
-      saveOverheadCostTypes(updatedOverheadCostTypes);
-      
-      setEditingOverheadCost(null);
-      setNewOverheadCost({ name: "" });
-      setIsEditOverheadCostDialogOpen(false);
+      if (response.success) {
+        const updatedOverheadCostTypes = overheadCostTypes.filter(overheadCost => overheadCost.id !== overheadCostId);
+        setOverheadCostTypes(updatedOverheadCostTypes);
+        toast({
+          title: "Success",
+          description: "Overhead cost type deleted successfully",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete overhead cost type",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting overhead cost type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete overhead cost type",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingOverheadCostType(false);
     }
-  };
-
-  const handleDeleteOverheadCost = (overheadCostId: string) => {
-    const updatedOverheadCostTypes = overheadCostTypes.filter(overheadCost => overheadCost.id !== overheadCostId);
-    setOverheadCostTypes(updatedOverheadCostTypes);
-    saveOverheadCostTypes(updatedOverheadCostTypes);
   };
 
   const openEditOverheadCostDialog = (overheadCost: OverheadCostType) => {
@@ -393,53 +820,54 @@ const Settings = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold mb-2">Settings</h2>
-        <p className="text-muted-foreground">
-          Manage your application constants and preferences.
-        </p>
-      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="suppliers" className="flex items-center gap-2">
-            <Building className="h-4 w-4" />
-            Suppliers
-          </TabsTrigger>
-          <TabsTrigger value="items" className="flex items-center gap-2">
-            <ShoppingBag className="h-4 w-4" />
-            Items
-          </TabsTrigger>
-          <TabsTrigger value="packaging" className="flex items-center gap-2">
-            <Package className="h-4 w-4" />
-            Packaging Types
-          </TabsTrigger>
-          <TabsTrigger value="overhead" className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
-            Overhead Costs
-          </TabsTrigger>
-        </TabsList>
+        <div className="sticky top-0 bg-background z-10 pb-4">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="suppliers" className="flex items-center gap-2">
+              <Building className="h-4 w-4" />
+              Suppliers
+            </TabsTrigger>
+            <TabsTrigger value="items" className="flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4" />
+              Items
+            </TabsTrigger>
+            <TabsTrigger value="packaging" className="flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Packaging Types
+            </TabsTrigger>
+            <TabsTrigger value="overhead" className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Overhead Costs
+            </TabsTrigger>
+          </TabsList>
+      </div>
 
         {/* Suppliers Tab */}
         <TabsContent value="suppliers" className="space-y-4">
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <div className="flex items-center justify-between">
-                <div>
+      <div>
                   <CardTitle>Suppliers</CardTitle>
-                  <CardDescription>
+            <CardDescription>
                     Manage your suppliers for the add supply expense form.
-                  </CardDescription>
-                </div>
+            </CardDescription>
+      </div>
                 <Button onClick={() => setIsAddSupplierDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Supplier
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent>
-              {suppliers.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+          </CardHeader>
+          <CardContent>
+              {isLoadingSuppliers ? (
+                <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Loading suppliers...</p>
+                </div>
+              ) : suppliers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
                   <Building className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No suppliers added yet.</p>
                   <p className="text-sm">Add your first supplier to get started.</p>
@@ -462,12 +890,17 @@ const Settings = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => openEditSupplierDialog(supplier)}
+                          disabled={isUpdatingSupplier || isDeletingSupplier}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              disabled={isUpdatingSupplier || isDeletingSupplier}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -480,8 +913,18 @@ const Settings = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteSupplier(supplier.id)}>
-                                Delete
+                              <AlertDialogAction 
+                                onClick={() => handleDeleteSupplier(supplier.id)}
+                                disabled={isDeletingSupplier}
+                              >
+                                {isDeletingSupplier ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  "Delete"
+                                )}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -489,38 +932,43 @@ const Settings = () => {
                       </div>
                     </div>
                   ))}
-                </div>
+            </div>
               )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
         </TabsContent>
 
         {/* Items Tab */}
         <TabsContent value="items" className="space-y-4">
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Items</CardTitle>
-                  <CardDescription>
+            <CardDescription>
                     Manage your items for the add supply expense form.
-                  </CardDescription>
+            </CardDescription>
                 </div>
                 <Button onClick={() => setIsAddItemDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Item
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent>
-              {items.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
+          </CardHeader>
+          <CardContent>
+              {isLoadingItems ? (
+                <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Loading items...</p>
+                </div>
+              ) : items.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
                   <ShoppingBag className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No items added yet.</p>
                   <p className="text-sm">Add your first item to get started.</p>
-                </div>
+            </div>
               ) : (
-                <div className="grid gap-4">
+            <div className="grid gap-4">
                   {items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
@@ -534,12 +982,17 @@ const Settings = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => openEditItemDialog(item)}
+                          disabled={isUpdatingItem || isDeletingItem}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              disabled={isUpdatingItem || isDeletingItem}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -552,8 +1005,18 @@ const Settings = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteItem(item.id)}>
-                                Delete
+                              <AlertDialogAction 
+                                onClick={() => handleDeleteItem(item.id)}
+                                disabled={isDeletingItem}
+                              >
+                                {isDeletingItem ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  "Delete"
+                                )}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -563,36 +1026,41 @@ const Settings = () => {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
         </TabsContent>
 
         {/* Packaging Types Tab */}
         <TabsContent value="packaging" className="space-y-4">
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Packaging Types</CardTitle>
-                  <CardDescription>
+            <CardDescription>
                     Manage packaging types for selecting categories in packaging costs.
-                  </CardDescription>
+            </CardDescription>
                 </div>
                 <Button onClick={() => setIsAddPackagingDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Packaging Type
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent>
-              {packagingTypes.length === 0 ? (
+          </CardHeader>
+          <CardContent>
+              {isLoadingPackagingTypes ? (
+                <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Loading packaging types...</p>
+                </div>
+              ) : packagingTypes.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No packaging types added yet.</p>
                   <p className="text-sm">Add your first packaging type to get started.</p>
                 </div>
               ) : (
-                <div className="grid gap-4">
+            <div className="grid gap-4">
                   {packagingTypes.map((packaging) => (
                     <div key={packaging.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
@@ -601,18 +1069,23 @@ const Settings = () => {
                           <p className="text-sm text-muted-foreground mt-1">{packaging.description}</p>
                         )}
                         <p className="text-sm text-muted-foreground mt-1">Price: GHS {(packaging.price || 0).toFixed(2)}</p>
-                      </div>
+              </div>
                       <div className="flex gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => openEditPackagingDialog(packaging)}
+                          disabled={isUpdatingPackagingType || isDeletingPackagingType}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              disabled={isUpdatingPackagingType || isDeletingPackagingType}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -625,19 +1098,29 @@ const Settings = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeletePackaging(packaging.id)}>
-                                Delete
+                              <AlertDialogAction 
+                                onClick={() => handleDeletePackaging(packaging.id)}
+                                disabled={isDeletingPackagingType}
+                              >
+                                {isDeletingPackagingType ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  "Delete"
+                                )}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                      </div>
-                    </div>
+              </div>
+              </div>
                   ))}
-                </div>
+            </div>
               )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
         </TabsContent>
 
         {/* Overhead Costs Tab */}
@@ -650,7 +1133,7 @@ const Settings = () => {
                   <CardDescription>
                     Manage overhead cost types for categorizing business expenses.
                   </CardDescription>
-                </div>
+      </div>
                 <Button onClick={() => setIsAddOverheadCostDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Overhead Cost Type
@@ -658,7 +1141,12 @@ const Settings = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {overheadCostTypes.length === 0 ? (
+              {isLoadingOverheadCostTypes ? (
+                <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Loading overhead cost types...</p>
+                </div>
+              ) : overheadCostTypes.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No overhead cost types added yet.</p>
@@ -676,12 +1164,17 @@ const Settings = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => openEditOverheadCostDialog(overheadCost)}
+                          disabled={isUpdatingOverheadCostType || isDeletingOverheadCostType}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              disabled={isUpdatingOverheadCostType || isDeletingOverheadCostType}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -694,8 +1187,18 @@ const Settings = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteOverheadCost(overheadCost.id)}>
-                                Delete
+                              <AlertDialogAction 
+                                onClick={() => handleDeleteOverheadCost(overheadCost.id)}
+                                disabled={isDeletingOverheadCostType}
+                              >
+                                {isDeletingOverheadCostType ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  "Delete"
+                                )}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -705,8 +1208,8 @@ const Settings = () => {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
         </TabsContent>
       </Tabs>
 
@@ -749,11 +1252,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsAddSupplierDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddSupplierDialogOpen(false)}
+              disabled={isCreatingSupplier}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddSupplier}>
-              Add Supplier
+            <Button 
+              onClick={handleAddSupplier}
+              disabled={isCreatingSupplier}
+            >
+              {isCreatingSupplier ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Add Supplier"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -798,11 +1315,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsEditSupplierDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsEditSupplierDialogOpen(false)}
+              disabled={isUpdatingSupplier}
+            >
               Cancel
             </Button>
-            <Button onClick={handleEditSupplier}>
-              Update Supplier
+            <Button 
+              onClick={handleEditSupplier}
+              disabled={isUpdatingSupplier}
+            >
+              {isUpdatingSupplier ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update Supplier"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -844,11 +1375,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsAddItemDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddItemDialogOpen(false)}
+              disabled={isCreatingItem}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddItem}>
-              Add Item
+            <Button 
+              onClick={handleAddItem}
+              disabled={isCreatingItem}
+            >
+              {isCreatingItem ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Add Item"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -890,11 +1435,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsEditItemDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsEditItemDialogOpen(false)}
+              disabled={isUpdatingItem}
+            >
               Cancel
             </Button>
-            <Button onClick={handleEditItem}>
-              Update Item
+            <Button 
+              onClick={handleEditItem}
+              disabled={isUpdatingItem}
+            >
+              {isUpdatingItem ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update Item"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -940,11 +1499,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsAddPackagingDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddPackagingDialogOpen(false)}
+              disabled={isCreatingPackagingType}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddPackaging}>
-              Add Packaging Type
+            <Button 
+              onClick={handleAddPackaging}
+              disabled={isCreatingPackagingType}
+            >
+              {isCreatingPackagingType ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Add Packaging Type"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -990,11 +1563,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsEditPackagingDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsEditPackagingDialogOpen(false)}
+              disabled={isUpdatingPackagingType}
+            >
               Cancel
             </Button>
-            <Button onClick={handleEditPackaging}>
-              Update Packaging Type
+            <Button 
+              onClick={handleEditPackaging}
+              disabled={isUpdatingPackagingType}
+            >
+              {isUpdatingPackagingType ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update Packaging Type"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -1021,11 +1608,25 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsAddOverheadCostDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsAddOverheadCostDialogOpen(false)}
+              disabled={isCreatingOverheadCostType}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddOverheadCost}>
-              Add Overhead Cost Type
+            <Button 
+              onClick={handleAddOverheadCost}
+              disabled={isCreatingOverheadCostType}
+            >
+              {isCreatingOverheadCostType ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Add Overhead Cost Type"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -1052,15 +1653,31 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsEditOverheadCostDialogOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsEditOverheadCostDialogOpen(false)}
+              disabled={isUpdatingOverheadCostType}
+            >
               Cancel
             </Button>
-            <Button onClick={handleEditOverheadCost}>
-              Update Overhead Cost Type
+            <Button 
+              onClick={handleEditOverheadCost}
+              disabled={isUpdatingOverheadCostType}
+            >
+              {isUpdatingOverheadCostType ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update Overhead Cost Type"
+              )}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+      
+      <Toaster />
     </div>
   );
 };

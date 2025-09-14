@@ -3,182 +3,200 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 import { 
   ShoppingCart, 
   DollarSign, 
   TrendingUp,
   Download
 } from "lucide-react";
-import { getOrders, getProducts, Order, Product } from "@/lib/dataService";
+import { 
+  getSalesSummary, 
+  getSalesPaymentBreakdown, 
+  getSalesOrders, 
+  exportSalesData,
+  SalesSummaryResponse,
+  PaymentBreakdownItem,
+  SalesOrder,
+  ApiResponse
+} from "@/lib/dataService";
 
 const Sales = () => {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [salesDateFilter, setSalesDateFilter] = useState("7"); // Default to last 7 days
+  // API data state
+  const [salesSummary, setSalesSummary] = useState<SalesSummaryResponse | null>(null);
+  const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdownItem[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Filter state
+  const [salesDateFilter, setSalesDateFilter] = useState<Date | undefined>(new Date()); // Default to today
+  const [timePeriod, setTimePeriod] = useState<'day' | 'week' | 'month'>('day');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
-  const [productTypeFilter, setProductTypeFilter] = useState("all");
 
-  // Helper functions
-  const getPaymentTypeDisplayText = (paymentType: string) => {
-    switch (paymentType) {
-      case 'cash': return 'Cash';
-      case 'momo': return 'MoMo';
-      case 'card': return 'Card';
-      case 'mobile_money': return 'Mobile Money';
-      default: return paymentType;
-    }
-  };
 
-  const getStatusDisplayText = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Pending';
-      case 'preparing': return 'Preparing';
-      case 'ready': return 'Ready';
-      case 'delivered': return 'Delivered';
-      case 'picked_up': return 'Picked Up';
-      default: return status;
-    }
-  };
-
-  // Load data
-  const loadData = () => {
+  // Load data from API
+  const loadSalesData = async () => {
+    setIsLoading(true);
     try {
-      const ordersData = getOrders();
-      const productsData = getProducts();
-      setOrders(ordersData);
-      setProducts(productsData);
+      const dateParam = salesDateFilter ? salesDateFilter.toISOString().split('T')[0] : undefined;
+      
+      // Load all sales data in parallel
+      const [summaryResponse, paymentResponse, ordersResponse] = await Promise.all([
+        getSalesSummary({ date: dateParam, period: timePeriod }),
+        getSalesPaymentBreakdown({ date: dateParam, period: timePeriod }),
+        getSalesOrders({ date: dateParam, period: timePeriod })
+      ]);
+
+      if (summaryResponse.success && summaryResponse.data) {
+        setSalesSummary(summaryResponse.data);
+      }
+      
+      if (paymentResponse.success && paymentResponse.data) {
+        setPaymentBreakdown(paymentResponse.data);
+      }
+      
+      if (ordersResponse.success && ordersResponse.data) {
+        setSalesOrders(ordersResponse.data);
+      }
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading sales data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadSalesData();
+  }, [salesDateFilter, timePeriod]);
 
-  // Sales calculations
-  const getFilteredOrdersForSales = () => {
-    const today = new Date();
-    const daysToSubtract = parseInt(salesDateFilter);
-    const startDate = new Date(today);
-    startDate.setDate(today.getDate() - daysToSubtract);
+  // Helper function to format date range display
+  const getDateRangeDisplay = (selectedDate: Date | undefined, period: 'day' | 'week' | 'month') => {
+    if (!selectedDate) return "All dates";
     
-    return orders.filter(order => {
-      const orderDate = new Date(order.orderDate);
-      return orderDate >= startDate && orderDate <= today;
-    });
+    switch (period) {
+      case 'day':
+        return format(selectedDate, "MMM dd, yyyy");
+      case 'week':
+        return `Week of ${format(selectedDate, "MMM dd, yyyy")}`;
+      case 'month':
+        return format(selectedDate, "MMMM yyyy");
+      default:
+        return format(selectedDate, "MMM dd, yyyy");
+    }
   };
 
-  const filteredOrdersForSales = getFilteredOrdersForSales();
-
-  const salesSummary = {
-    totalOrders: filteredOrdersForSales.length,
-    totalSales: filteredOrdersForSales.reduce((sum, order) => sum + order.total, 0),
-    totalRevenue: filteredOrdersForSales.reduce((sum, order) => sum + order.total, 0),
+  // Export function
+  const handleExport = async () => {
+    try {
+      const dateParam = salesDateFilter ? salesDateFilter.toISOString().split('T')[0] : undefined;
+      const blob = await exportSalesData({ date: dateParam, period: timePeriod });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sales-data-${dateParam || 'all'}-${timePeriod}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting sales data:', error);
+    }
   };
-
-  const paymentMethodBreakdown = filteredOrdersForSales.reduce((acc, order) => {
-    const method = getPaymentTypeDisplayText(order.paymentType);
-    acc[method] = (acc[method] || 0) + order.total;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const productTypeBreakdown = filteredOrdersForSales.reduce((acc, order) => {
-    order.items.forEach(item => {
-      const product = products.find(p => p.id === item.productId);
-      const category = product ? product.category : 'Unknown';
-      acc[category] = (acc[category] || 0) + item.subtotal;
-    });
-    return acc;
-  }, {} as Record<string, number>);
 
   // Get filtered breakdowns
   const getFilteredPaymentBreakdown = () => {
     if (paymentMethodFilter === "all") {
-      return paymentMethodBreakdown;
+      return paymentBreakdown;
     }
-    const filtered = { ...paymentMethodBreakdown };
-    Object.keys(filtered).forEach(key => {
-      if (key !== paymentMethodFilter) {
-        delete filtered[key];
-      }
-    });
-    return filtered;
+    
+    // Map display values to API values
+    // Backend maps 'momo' -> 'MoMo', so we need to match 'MoMo'
+    const apiValue = paymentMethodFilter === "Momo" ? "MoMo" : paymentMethodFilter;
+    
+    return paymentBreakdown.filter(item => item.payment_method === apiValue);
   };
 
-  const getFilteredProductBreakdown = () => {
-    if (productTypeFilter === "all") {
-      return productTypeBreakdown;
-    }
-    const filtered = { ...productTypeBreakdown };
-    Object.keys(filtered).forEach(key => {
-      if (key !== productTypeFilter) {
-        delete filtered[key];
-      }
-    });
-    return filtered;
-  };
-
-  const exportToCSV = () => {
-    const headers = ['Order ID', 'Date', 'Customer', 'Contact', 'Items', 'Total', 'Payment Method', 'Delivery Type', 'Status'];
-    const csvData = filteredOrdersForSales.map(order => [
-      order.id,
-      order.orderDate,
-      order.customerName,
-      order.customerContact,
-      order.items.map(item => `${item.productName} (${item.quantity})`).join('; '),
-      order.total.toFixed(2),
-      getPaymentTypeDisplayText(order.paymentType),
-      order.deliveryType,
-      getStatusDisplayText(order.deliveryStatus)
-    ]);
-
-    const csvContent = [headers, ...csvData]
-      .map(row => row.map(field => `"${field}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sales-report-${salesDateFilter}-days.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="space-y-2">
-          <Label htmlFor="sales-date-filter">Time Period</Label>
-          <Select value={salesDateFilter} onValueChange={setSalesDateFilter}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Select period" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">Last 24 hours</SelectItem>
-              <SelectItem value="7">Last 7 days</SelectItem>
-              <SelectItem value="30">Last 30 days</SelectItem>
-              <SelectItem value="90">Last 90 days</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="time-period">Time Period</Label>
+            <Select value={timePeriod} onValueChange={(value) => setTimePeriod(value as 'day' | 'week' | 'month')}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="week">Week</SelectItem>
+                <SelectItem value="month">Month</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="sales-date-filter">Date Filter</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-48 h-10 justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {getDateRangeDisplay(salesDateFilter, timePeriod)}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={salesDateFilter}
+                  onSelect={setSalesDateFilter}
+                  initialFocus
+                />
+                {salesDateFilter && (
+                  <div className="p-3 border-t">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setSalesDateFilter(undefined)}
+                    >
+                      Clear Date Filter
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
-        <Button onClick={exportToCSV}>
+        <Button onClick={handleExport} disabled={isLoading}>
           <Download className="h-4 w-4 mr-2" />
           Export CSV
         </Button>
       </div>
 
       {/* Daily Sales Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading sales data...</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
-                <p className="text-3xl font-bold">{salesSummary.totalOrders}</p>
+                <p className="text-3xl font-bold">{salesSummary?.total_orders || 0}</p>
               </div>
               <ShoppingCart className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -190,7 +208,7 @@ const Sales = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Sales</p>
-                <p className="text-3xl font-bold">₵{salesSummary.totalSales.toFixed(2)}</p>
+                <p className="text-3xl font-bold">₵{(salesSummary?.total_sales || 0).toFixed(2)}</p>
               </div>
               <DollarSign className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -202,7 +220,7 @@ const Sales = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
-                <p className="text-3xl font-bold">₵{salesSummary.totalRevenue.toFixed(2)}</p>
+                <p className="text-3xl font-bold">₵{(salesSummary?.total_revenue || 0).toFixed(2)}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -211,7 +229,7 @@ const Sales = () => {
       </div>
 
       {/* Breakdown Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Payment Method Breakdown */}
         <Card>
           <CardHeader>
@@ -224,29 +242,28 @@ const Sales = () => {
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="Cash">Cash</SelectItem>
-                  <SelectItem value="Card">Card</SelectItem>
-                  <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                  <SelectItem value="Momo">Momo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {Object.entries(getFilteredPaymentBreakdown()).map(([method, amount]) => (
-                <div key={method} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              {getFilteredPaymentBreakdown().map((item) => (
+                <div key={item.payment_method} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-primary"></div>
-                    <span className="font-medium">{method}</span>
+                    <span className="font-medium">{item.payment_method}</span>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">₵{amount.toFixed(2)}</p>
+                    <p className="font-semibold">₵{item.amount.toFixed(2)}</p>
                     <p className="text-sm text-muted-foreground">
-                      {((amount / salesSummary.totalRevenue) * 100).toFixed(1)}%
+                      {item.percentage.toFixed(1)}%
                     </p>
                   </div>
                 </div>
               ))}
-              {Object.keys(getFilteredPaymentBreakdown()).length === 0 && (
+              {getFilteredPaymentBreakdown().length === 0 && (
                 <div className="text-center text-muted-foreground py-8">
                   <p>No payment data available for selected filter</p>
                 </div>
@@ -255,51 +272,9 @@ const Sales = () => {
           </CardContent>
         </Card>
 
-        {/* Product Type Breakdown */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Product Type Breakdown</CardTitle>
-              <Select value={productTypeFilter} onValueChange={setProductTypeFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Filter" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {Object.keys(productTypeBreakdown).map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {Object.entries(getFilteredProductBreakdown()).map(([category, amount]) => (
-                <div key={category} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                    <span className="font-medium">{category}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">₵{amount.toFixed(2)}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {((amount / salesSummary.totalRevenue) * 100).toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {Object.keys(getFilteredProductBreakdown()).length === 0 && (
-                <div className="text-center text-muted-foreground py-8">
-                  <p>No product data available for selected filter</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

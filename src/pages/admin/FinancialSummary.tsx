@@ -3,92 +3,120 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   DollarSign, 
   TrendingUp,
   Trash2,
   Package,
   Users,
-  ShoppingCart
+  ShoppingCart,
+  Loader2,
+  Building2
 } from "lucide-react";
-import { getProducts, getOrders, getExpenses, Product, Order, Expense } from "@/lib/dataService";
+import { 
+  getFinancialSummary,
+  getFinancialRevenue,
+  getFinancialExpenses,
+  getFinancialProfit,
+  getFinancialBreakdown,
+  FinancialSummaryResponse,
+  FinancialRevenueResponse,
+  FinancialExpensesResponse,
+  FinancialProfitResponse,
+  FinancialBreakdownResponse,
+  ApiResponse
+} from "@/lib/dataService";
 
 const FinancialSummary = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  // API data state
+  const [financialSummary, setFinancialSummary] = useState<FinancialSummaryResponse | null>(null);
+  const [financialRevenue, setFinancialRevenue] = useState<FinancialRevenueResponse | null>(null);
+  const [financialExpenses, setFinancialExpenses] = useState<FinancialExpensesResponse | null>(null);
+  const [financialProfit, setFinancialProfit] = useState<FinancialProfitResponse | null>(null);
+  const [financialBreakdown, setFinancialBreakdown] = useState<FinancialBreakdownResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Filter state
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [timePeriod, setTimePeriod] = useState<'day' | 'week' | 'month'>('day');
 
-  // Load data
-  const loadData = () => {
+  // Load financial data from API
+  const loadFinancialData = async () => {
+    setIsLoading(true);
     try {
-      const productsData = getProducts();
-      const ordersData = getOrders();
-      const expensesData = getExpenses();
-      setProducts(productsData);
-      setOrders(ordersData);
-      setExpenses(expensesData);
+      const dateParam = dateFilter;
+      
+      // Load all financial data in parallel
+      const [summaryResponse, revenueResponse, expensesResponse, profitResponse, breakdownResponse] = await Promise.all([
+        getFinancialSummary({ date: dateParam, period: timePeriod }),
+        getFinancialRevenue({ date: dateParam, period: timePeriod }),
+        getFinancialExpenses({ date: dateParam, period: timePeriod }),
+        getFinancialProfit({ date: dateParam, period: timePeriod }),
+        getFinancialBreakdown({ date: dateParam, period: timePeriod })
+      ]);
+
+      if (summaryResponse.success && summaryResponse.data) {
+        setFinancialSummary(summaryResponse.data);
+      }
+      
+      if (revenueResponse.success && revenueResponse.data) {
+        setFinancialRevenue(revenueResponse.data);
+      }
+      
+      if (expensesResponse.success && expensesResponse.data) {
+        setFinancialExpenses(expensesResponse.data);
+      }
+      
+      if (profitResponse.success && profitResponse.data) {
+        setFinancialProfit(profitResponse.data);
+      }
+      
+      if (breakdownResponse.success && breakdownResponse.data) {
+        setFinancialBreakdown(breakdownResponse.data);
+      }
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading financial data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadFinancialData();
+  }, [dateFilter, timePeriod]);
 
-  // Financial calculations for selected date
-  const getFilteredData = (selectedDate: string) => {
-    const filteredOrders = orders.filter(order => order.orderDate === selectedDate);
-    const filteredExpenses = expenses.filter(expense => expense.date === selectedDate);
-    
-    return { filteredOrders, filteredExpenses };
-  };
 
-  const { filteredOrders, filteredExpenses } = getFilteredData(dateFilter);
+  // Use API data for calculations
+  const totalRevenue = financialSummary?.total_revenue || 0;
+  const totalOrders = financialSummary?.total_orders || 0;
 
-  // Revenue calculations
-  const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total, 0);
-  const totalOrders = filteredOrders.length;
+  // Use API data for expense calculations
+  const supplyExpenses = financialSummary?.supply_expenses || 0;
+  const totalStaffPayments = financialSummary?.staff_payments || 0;
+  const totalOverheadCosts = financialSummary?.overhead_costs || 0;
+  const totalExpenses = financialSummary?.total_expenses || 0;
 
-  // Expense calculations by category
-  const supplyExpenses = filteredExpenses
-    .filter(expense => expense.category === "Supply")
-    .reduce((sum, expense) => sum + expense.total, 0);
-
-  const staffPayments = filteredExpenses
-    .filter(expense => expense.category === "Staff")
-    .reduce((sum, expense) => sum + expense.total, 0);
-
-  const totalExpenses = supplyExpenses + staffPayments;
-
-  // Profit calculation
-  const netProfit = totalRevenue - totalExpenses;
+  // Use API data for profit calculation
+  const netProfit = financialSummary?.net_profit || 0;
 
   // Helper function to format currency
   const formatCurrency = (amount: number) => `₵${amount.toFixed(2)}`;
 
-  const clearAllData = () => {
-    try {
-      // Clear all data from localStorage
-      localStorage.removeItem('laila_orders');
-      localStorage.removeItem('laila_products');
-      localStorage.removeItem('laila_expenses');
-      localStorage.removeItem('recipes');
-      localStorage.removeItem('ingredients');
-      
-      // Reset all state
-      setOrders([]);
-      setProducts([]);
-      setExpenses([]);
-      
-      console.log('FinancialSummary: All data cleared');
-      alert('All data has been cleared successfully!');
-    } catch (error) {
-      console.error('Error clearing data:', error);
-      alert('Error clearing data. Please try again.');
+  // Helper function to format date range display
+  const getDateRangeDisplay = (selectedDate: string, period: 'day' | 'week' | 'month') => {
+    switch (period) {
+      case 'day':
+        return new Date(selectedDate).toLocaleDateString();
+      case 'week':
+        return `Week of ${new Date(selectedDate).toLocaleDateString()}`;
+      case 'month':
+        return new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      default:
+        return new Date(selectedDate).toLocaleDateString();
     }
   };
+
 
   return (
     <div className="space-y-6">
@@ -96,9 +124,22 @@ const FinancialSummary = () => {
       <div className="flex items-center justify-between">
         <div className="space-y-2">
           <h2 className="text-3xl font-bold">Financial Summary</h2>
-          <p className="text-muted-foreground">Complete financial overview for selected date</p>
+          <p className="text-muted-foreground">Complete financial overview for {getDateRangeDisplay(dateFilter, timePeriod)}</p>
         </div>
         <div className="flex items-center gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="time-period">Time Period</Label>
+            <Select value={timePeriod} onValueChange={(value) => setTimePeriod(value as 'day' | 'week' | 'month')}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="week">Week</SelectItem>
+                <SelectItem value="month">Month</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="date-filter">Select Date</Label>
             <Input
@@ -109,19 +150,20 @@ const FinancialSummary = () => {
               className="w-48"
             />
           </div>
-          <Button 
-            variant="destructive" 
-            size="sm"
-            onClick={clearAllData}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Clear All Data
-          </Button>
         </div>
       </div>
 
       {/* Main Financial Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading financial data...</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         {/* Revenue Card */}
         <Card>
           <CardContent className="p-6">
@@ -160,12 +202,30 @@ const FinancialSummary = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Staff Payments</p>
-                <p className="text-3xl font-bold text-blue-600">{formatCurrency(staffPayments)}</p>
+                <p className="text-3xl font-bold text-blue-600">{formatCurrency(totalStaffPayments)}</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Wages & salaries
+                  Staff payments
                 </p>
               </div>
               <Users className="h-8 w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Overhead Costs Card */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Overhead Costs</p>
+                <p className="text-3xl font-bold text-purple-600">
+                  {formatCurrency(totalOverheadCosts)}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Overhead costs
+                </p>
+              </div>
+              <Building2 className="h-8 w-8 text-purple-600" />
             </div>
           </CardContent>
         </Card>
@@ -246,8 +306,18 @@ const FinancialSummary = () => {
                   <span className="font-medium">Staff Payments</span>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold text-blue-600">{formatCurrency(staffPayments)}</p>
-                  <p className="text-sm text-muted-foreground">Wages & salaries</p>
+                  <p className="font-semibold text-blue-600">{formatCurrency(totalStaffPayments)}</p>
+                  <p className="text-sm text-muted-foreground">Staff payments</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-purple-600"></div>
+                  <span className="font-medium">Overhead Costs</span>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-purple-600">{formatCurrency(totalOverheadCosts)}</p>
+                  <p className="text-sm text-muted-foreground">Overhead costs</p>
                 </div>
               </div>
               <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border-t">
@@ -270,13 +340,13 @@ const FinancialSummary = () => {
         </Card>
       </div>
 
-      {/* Summary for Selected Date */}
+      {/* Summary for Selected Period */}
       <Card>
         <CardHeader>
-          <CardTitle>Summary for {new Date(dateFilter).toLocaleDateString()}</CardTitle>
+          <CardTitle>Summary for {getDateRangeDisplay(dateFilter, timePeriod)}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="text-center">
               <p className="text-sm font-medium text-muted-foreground">Orders Processed</p>
               <p className="text-2xl font-bold">{totalOrders}</p>
@@ -284,6 +354,12 @@ const FinancialSummary = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
               <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium text-muted-foreground">Overhead Costs</p>
+              <p className="text-2xl font-bold text-purple-600">
+                {formatCurrency(totalOverheadCosts)}
+              </p>
             </div>
             <div className="text-center">
               <p className="text-sm font-medium text-muted-foreground">Net Profit</p>
@@ -294,6 +370,8 @@ const FinancialSummary = () => {
           </div>
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 };

@@ -144,18 +144,18 @@ const AdminDashboard = () => {
         {/* Sidebar */}
         <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed lg:static lg:translate-x-0 z-30 w-64 bg-card border-r transition-transform duration-300 ease-in-out flex-shrink-0`}>
           <div className="p-6 h-full overflow-y-auto">
-            <nav className="space-y-2">
+            <nav className="space-y-1">
               {sidebarItems.map((item, index) => (
                 <Button
                   key={index}
                   variant={activeSection === item.href ? "default" : "ghost"}
-                  className="w-full justify-start gap-3 h-12"
+                  className="w-full justify-start gap-2 h-9 text-sm"
                   onClick={() => {
                     console.log("Sidebar item clicked:", item.href);
                     setActiveSection(item.href);
                   }}
                 >
-                  <item.icon className="h-5 w-5" />
+                  <item.icon className="h-4 w-4" />
                   {item.label}
                 </Button>
               ))}
@@ -164,9 +164,9 @@ const AdminDashboard = () => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-hidden">
-          <div className="p-6 h-full">
-            <div className="max-w-6xl mx-auto h-full">
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-6">
+            <div className="max-w-6xl mx-auto">
               {renderContent()}
             </div>
           </div>

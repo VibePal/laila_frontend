@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,17 +8,35 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Toaster } from "@/components/ui/toaster";
 import { 
   Package,
   Plus,
   Trash2,
-  Minus
+  Minus,
+  Loader2
 } from "lucide-react";
-import { getExpenses, saveExpense, deleteExpense, Expense } from "@/lib/dataService";
+import { 
+  getSupplyExpensesFromAPI,
+  createSupplyExpense,
+  updateSupplyExpenseAPI,
+  deleteSupplyExpenseAPI,
+  getSuppliersFromAPI,
+  getItemsFromAPI,
+  Expense,
+  SupplierApiResponse,
+  ItemApiResponse,
+  ApiResponse
+} from "@/lib/dataService";
 
 const Expenses = () => {
+  console.log("🔵 Expenses component is rendering!");
+  const navigate = useNavigate();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isAddExpenseDialogOpen, setIsAddExpenseDialogOpen] = useState(false);
+  const [isEditExpenseDialogOpen, setIsEditExpenseDialogOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [newExpense, setNewExpense] = useState({
     date: "",
     supplier: "",
@@ -35,45 +54,104 @@ const Expenses = () => {
   ]);
   const [supplyDateFilter, setSupplyDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
-  // Settings data state
-  const [suppliers, setSuppliers] = useState<Array<{id: string, name: string, contact?: string, address?: string}>>([]);
-  const [items, setItems] = useState<Array<{id: string, name: string, unit: string}>>([]);
+  // Settings data state - using API response types
+  const [suppliers, setSuppliers] = useState<SupplierApiResponse[]>([]);
+  const [items, setItems] = useState<ItemApiResponse[]>([]);
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const { toast } = useToast();
 
   // Load data
-  const loadExpenses = () => {
+  const loadExpenses = async () => {
+    console.log("🔵 loadExpenses called");
     try {
-      const expensesData = getExpenses();
-      setExpenses(expensesData);
+      console.log("🔵 Calling getSupplyExpensesFromAPI...");
+      const response = await getSupplyExpensesFromAPI();
+      console.log("🔵 loadExpenses API response:", response);
+      
+      if (response.success && response.data) {
+        console.log("✅ Expenses loaded successfully:", response.data);
+        console.log("🔵 Number of expenses loaded:", response.data.length);
+        setExpenses(response.data);
+        console.log("🔵 Expenses state updated, current expenses:", response.data);
+      } else {
+        console.error("❌ Error loading expenses:", response.error);
+        setExpenses([]);
+      }
     } catch (error) {
-      console.error('Error loading expenses:', error);
+      console.error("❌ Exception in loadExpenses:", error);
+      setExpenses([]);
     }
   };
 
-  const loadSettingsData = () => {
+  const loadSuppliers = async () => {
+    setIsLoadingSuppliers(true);
     try {
-      // Load suppliers
-      const savedSuppliers = localStorage.getItem('laila_suppliers');
-      if (savedSuppliers) {
-        setSuppliers(JSON.parse(savedSuppliers));
-      }
-
-      // Load items
-      const savedItems = localStorage.getItem('laila_items');
-      if (savedItems) {
-        setItems(JSON.parse(savedItems));
+      const response: ApiResponse<SupplierApiResponse[]> = await getSuppliersFromAPI();
+      if (response.success && response.data) {
+        setSuppliers(response.data);
+      } else {
+        console.error('Failed to load suppliers:', response.error);
+        setSuppliers([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load suppliers",
+          variant: "destructive",
+        });
       }
     } catch (error) {
-      console.error('Error loading settings data:', error);
+      console.error('Error loading suppliers:', error);
+      setSuppliers([]);
+      toast({
+        title: "Error",
+        description: "Failed to load suppliers",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingSuppliers(false);
+    }
+  };
+
+  const loadItems = async () => {
+    setIsLoadingItems(true);
+    try {
+      const response: ApiResponse<ItemApiResponse[]> = await getItemsFromAPI();
+      if (response.success && response.data) {
+        setItems(response.data);
+      } else {
+        console.error('Failed to load items:', response.error);
+        setItems([]);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load items",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error loading items:', error);
+      setItems([]);
+      toast({
+        title: "Error",
+        description: "Failed to load items",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingItems(false);
     }
   };
 
   useEffect(() => {
+    console.log("🔵 Expenses component mounted, loading data...");
     loadExpenses();
-    loadSettingsData();
+    loadSuppliers();
+    loadItems();
   }, []);
 
   // Expense management functions
-  const handleAddExpense = () => {
+  const handleAddExpense = async () => {
+    console.log("🔵 handleAddExpense called");
+    console.log("🔵 Current form data:", { newExpense, expenseItems });
+    
     if (newExpense.date && newExpense.supplier && expenseItems.length > 0) {
       // Validate that all items have required fields
       const validItems = expenseItems.filter(item => 
@@ -85,55 +163,154 @@ const Expenses = () => {
         return;
       }
 
-      // Create an expense for each item
-      validItems.forEach((item, index) => {
-        const costPerItem = parseFloat(item.costPerItem);
-        const packageSize = parseFloat(item.packageSize || "0");
-      const pricePerUnit = packageSize > 0 ? costPerItem / packageSize : 0;
+      console.log("✅ All required fields present, creating expenses...");
       
-      const expense: Expense = {
-          id: `EXP-${Date.now().toString().slice(-6)}-${index}`,
-        date: newExpense.date,
-        supplier: newExpense.supplier,
-          items: item.items,
-          quantity: parseInt(item.quantity),
-        costPerItem: costPerItem,
-          total: parseInt(item.quantity) * costPerItem,
-        category: "Supply",
-          purchaseUnit: item.purchaseUnit || "",
-        packageSize: packageSize,
-        pricePerUnit: pricePerUnit
-      };
-      
-      saveExpense(expense);
-      });
-      
-      loadExpenses();
-      
-      // Reset form
-      setNewExpense({ 
-        date: "", 
-        supplier: "", 
-        category: "Supply"
-      });
-      setExpenseItems([
-        {
-        items: "", 
-        quantity: "", 
-        costPerItem: "", 
-        purchaseUnit: "", 
-        packageSize: "" 
+      // Create an expense for each item using API
+      try {
+        for (const item of validItems) {
+          const costPerItem = parseFloat(item.costPerItem);
+          const packageSize = item.packageSize ? parseFloat(item.packageSize) : undefined;
+
+          // Convert date to ISO format
+          const isoDate = new Date(newExpense.date).toISOString();
+
+          // Build payload for API - exclude total and pricePerUnit as backend calculates them
+          const expensePayload = {
+            date: isoDate,
+            supplier: newExpense.supplier.trim(),
+            items: item.items.trim(),
+            quantity: parseInt(item.quantity),
+            costPerItem: costPerItem,
+            category: "Supply",
+            purchaseUnit: item.purchaseUnit || undefined,
+            packageSize: packageSize,
+          };
+
+          console.log("🔵 Creating expense with payload:", expensePayload);
+          
+          const response = await createSupplyExpense(expensePayload);
+          if (response.success) {
+            console.log("✅ Expense created successfully:", response.data);
+          } else {
+            console.error("❌ Error creating expense:", response.error);
+            alert(`Error creating expense: ${response.error}`);
+            return;
+          }
         }
-      ]);
-      setIsAddExpenseDialogOpen(false);
+        
+        // Reload expenses to get the updated list with backend-calculated fields
+        console.log("🔵 Reloading expenses...");
+        await loadExpenses();
+      
+        // Reset form
+        setNewExpense({ 
+          date: "", 
+          supplier: "", 
+          category: "Supply"
+        });
+        setExpenseItems([
+          {
+          items: "", 
+          quantity: "", 
+          costPerItem: "", 
+          purchaseUnit: "", 
+          packageSize: "" 
+          }
+        ]);
+        setIsAddExpenseDialogOpen(false);
+        console.log("✅ Form reset and dialog closed");
+        
+      } catch (error) {
+        console.error("❌ Exception caught in handleAddExpense:", error);
+        alert("Failed to create expense. Please try again.");
+      }
     } else {
+      console.log("❌ Missing required fields:", {
+        date: !!newExpense.date,
+        supplier: !!newExpense.supplier,
+        expenseItems: expenseItems.length
+      });
       alert("Please fill in all required fields");
     }
   };
 
-  const handleDeleteExpense = (expenseId: string) => {
-    deleteExpense(expenseId);
-    loadExpenses();
+  const handleDeleteExpense = async (expenseId: string) => {
+    console.log("🔵 handleDeleteExpense called with ID:", expenseId);
+    try {
+      const response = await deleteSupplyExpenseAPI(expenseId);
+      if (response.success) {
+        console.log("✅ Expense deleted successfully");
+        // Reload expenses to get the updated list
+        await loadExpenses();
+      } else {
+        console.error("❌ Error deleting expense:", response.error);
+        
+        // Check if it's an authentication error
+        if (response.error?.includes('credentials') || response.error?.includes('401') || response.error?.includes('Unauthorized')) {
+          alert("Your session has expired. Please log in again.");
+          navigate('/login');
+        } else {
+          alert(`Error deleting expense: ${response.error}`);
+        }
+      }
+    } catch (error) {
+      console.error("❌ Exception in handleDeleteExpense:", error);
+      alert("Failed to delete expense. Please try again.");
+    }
+  };
+
+  const handleEditExpense = (expense: Expense) => {
+    console.log("🔵 handleEditExpense called with:", expense);
+    setEditingExpense(expense);
+    setIsEditExpenseDialogOpen(true);
+  };
+
+  const handleUpdateExpense = async () => {
+    if (!editingExpense) return;
+    
+    console.log("🔵 handleUpdateExpense called for:", editingExpense.id);
+    
+    try {
+      // Convert date to ISO format if it's not already
+      const isoDate = editingExpense.date.includes('T') 
+        ? editingExpense.date 
+        : new Date(editingExpense.date).toISOString();
+
+      const updatePayload = {
+        date: isoDate,
+        supplier: editingExpense.supplier.trim(),
+        items: editingExpense.items.trim(),
+        quantity: editingExpense.quantity,
+        costPerItem: editingExpense.costPerItem,
+        category: editingExpense.category,
+        purchaseUnit: editingExpense.purchaseUnit || undefined,
+        packageSize: editingExpense.packageSize || undefined,
+      };
+
+      console.log("🔵 Updating expense with payload:", updatePayload);
+      
+      const response = await updateSupplyExpenseAPI(editingExpense.id, updatePayload);
+      if (response.success) {
+        console.log("✅ Expense updated successfully");
+        // Reload expenses to get the updated list
+        await loadExpenses();
+        setIsEditExpenseDialogOpen(false);
+        setEditingExpense(null);
+      } else {
+        console.error("❌ Error updating expense:", response.error);
+        
+        // Check if it's an authentication error
+        if (response.error?.includes('credentials') || response.error?.includes('401') || response.error?.includes('Unauthorized')) {
+          alert("Your session has expired. Please log in again.");
+          navigate('/login');
+        } else {
+          alert(`Error updating expense: ${response.error}`);
+        }
+      }
+    } catch (error) {
+      console.error("❌ Exception in handleUpdateExpense:", error);
+      alert("Failed to update expense. Please try again.");
+    }
   };
 
   // Helper functions for managing multiple items
@@ -212,16 +389,27 @@ const Expenses = () => {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="expense-supplier">Supplier</Label>
-                <Select value={newExpense.supplier} onValueChange={(value) => setNewExpense({...newExpense, supplier: value})}>
+                <Select value={newExpense.supplier} onValueChange={(value) => setNewExpense({...newExpense, supplier: value})} disabled={isLoadingSuppliers}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select supplier" />
+                    <SelectValue placeholder={isLoadingSuppliers ? "Loading suppliers..." : "Select supplier"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {suppliers.map((supplier) => (
-                      <SelectItem key={supplier.id} value={supplier.name}>
-                        {supplier.name}
-                      </SelectItem>
-                    ))}
+                    {isLoadingSuppliers ? (
+                      <div className="flex items-center justify-center p-4">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading suppliers...</span>
+                      </div>
+                    ) : suppliers.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        No suppliers available. Please add suppliers in Settings.
+                      </div>
+                    ) : (
+                      suppliers.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.name}>
+                          {supplier.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -250,16 +438,27 @@ const Expenses = () => {
                     
               <div className="grid gap-2">
                       <Label htmlFor={`expense-items-${index}`}>Supply Item</Label>
-                      <Select value={item.items} onValueChange={(value) => updateExpenseItem(index, 'items', value)}>
+                      <Select value={item.items} onValueChange={(value) => updateExpenseItem(index, 'items', value)} disabled={isLoadingItems}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select supply item" />
+                          <SelectValue placeholder={isLoadingItems ? "Loading items..." : "Select supply item"} />
                         </SelectTrigger>
                         <SelectContent>
-                          {items.map((itemOption) => (
-                            <SelectItem key={itemOption.id} value={itemOption.name}>
-                              {itemOption.name} ({itemOption.unit})
-                            </SelectItem>
-                          ))}
+                          {isLoadingItems ? (
+                            <div className="flex items-center justify-center p-4">
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              <span className="text-sm text-muted-foreground">Loading items...</span>
+                            </div>
+                          ) : items.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              No items available. Please add items in Settings.
+                            </div>
+                          ) : (
+                            items.map((itemOption) => (
+                              <SelectItem key={itemOption.id} value={itemOption.name}>
+                                {itemOption.name} ({itemOption.unit})
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
               </div>
@@ -352,27 +551,175 @@ const Expenses = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Edit Expense Dialog */}
+        <Dialog open={isEditExpenseDialogOpen} onOpenChange={setIsEditExpenseDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Edit Supply Expense</DialogTitle>
+              <DialogDescription>
+                Update the supply expense details.
+              </DialogDescription>
+            </DialogHeader>
+            {editingExpense && (
+              <div className="grid gap-3 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-expense-date">Date</Label>
+                  <Input
+                    id="edit-expense-date"
+                    type="date"
+                    value={editingExpense.date.split('T')[0]}
+                    onChange={(e) => setEditingExpense({
+                      ...editingExpense,
+                      date: e.target.value
+                    })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-expense-supplier">Supplier</Label>
+                  <Input
+                    id="edit-expense-supplier"
+                    value={editingExpense.supplier}
+                    onChange={(e) => setEditingExpense({
+                      ...editingExpense,
+                      supplier: e.target.value
+                    })}
+                    placeholder="Enter supplier name"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-expense-items">Supply Item</Label>
+                  <Input
+                    id="edit-expense-items"
+                    value={editingExpense.items}
+                    onChange={(e) => setEditingExpense({
+                      ...editingExpense,
+                      items: e.target.value
+                    })}
+                    placeholder="Enter supply item description"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-expense-quantity">Quantity</Label>
+                    <Input
+                      id="edit-expense-quantity"
+                      type="number"
+                      min="0"
+                      value={editingExpense.quantity}
+                      onChange={(e) => setEditingExpense({
+                        ...editingExpense,
+                        quantity: parseInt(e.target.value) || 0
+                      })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-expense-cost">Cost per Item (₵)</Label>
+                    <Input
+                      id="edit-expense-cost"
+                      type="number"
+                      step="0.01"
+                      value={editingExpense.costPerItem}
+                      onChange={(e) => setEditingExpense({
+                        ...editingExpense,
+                        costPerItem: parseFloat(e.target.value) || 0
+                      })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-expense-package-size">Package Size</Label>
+                    <Input
+                      id="edit-expense-package-size"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editingExpense.packageSize || ""}
+                      onChange={(e) => setEditingExpense({
+                        ...editingExpense,
+                        packageSize: parseFloat(e.target.value) || undefined
+                      })}
+                      placeholder="e.g., 1"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-expense-purchase-unit">Purchase Unit</Label>
+                    <Input
+                      id="edit-expense-purchase-unit"
+                      value={editingExpense.purchaseUnit || ""}
+                      onChange={(e) => setEditingExpense({
+                        ...editingExpense,
+                        purchaseUnit: e.target.value
+                      })}
+                      placeholder="e.g., kg, L, piece"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsEditExpenseDialogOpen(false);
+                  setEditingExpense(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateExpense}>Update Expense</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Expenses List */}
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {expenses.filter(expense => expense.category === "Supply" && expense.date === supplyDateFilter).length > 0 ? (
-            expenses.filter(expense => expense.category === "Supply" && expense.date === supplyDateFilter).map((expense) => (
+          {(() => {
+            console.log("🔵 Filtering expenses for display:");
+            console.log("🔵 All expenses:", expenses);
+            console.log("🔵 Supply date filter:", supplyDateFilter);
+            
+            const filteredExpenses = expenses.filter(expense => {
+              const expenseDate = expense.date.split("T")[0]; // Extract just the date part
+              const matchesCategory = expense.category === "Supply";
+              const matchesDate = expenseDate === supplyDateFilter;
+              
+              console.log("🔵 Expense:", expense.id, "Date:", expense.date, "Extracted date:", expenseDate, "Matches date:", matchesDate, "Matches category:", matchesCategory);
+              
+              return matchesCategory && matchesDate;
+            });
+            
+            console.log("🔵 Filtered expenses:", filteredExpenses);
+            console.log("🔵 Number of filtered expenses:", filteredExpenses.length);
+            
+            return filteredExpenses.length > 0 ? (
+              filteredExpenses.map((expense) => (
               <Card key={expense.id} className="h-fit">
                 <CardContent className="p-4">
                   <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-sm">{expense.id}</h3>
                         <Badge variant="outline" className="text-xs">{expense.category}</Badge>
                       </div>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="outline">
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </AlertDialogTrigger>
+                      <div className="flex gap-1">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleEditExpense(expense)}
+                        >
+                          Edit
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="outline">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Delete Expense</AlertDialogTitle>
@@ -388,6 +735,7 @@ const Expenses = () => {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+                      </div>
                     </div>
                     
                     <div className="space-y-2 text-xs text-muted-foreground">
@@ -441,20 +789,22 @@ const Expenses = () => {
                   </div>
                 </CardContent>
               </Card>
-            ))
-          ) : (
-            <Card>
-              <CardContent className="py-12">
-                <div className="text-center text-muted-foreground">
-                  <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium mb-2">No supply expenses found for {new Date(supplyDateFilter).toLocaleDateString()}</p>
-                  <p className="text-sm">Try selecting a different date or add a new supply expense.</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              ))
+            ) : (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="text-center text-muted-foreground">
+                    <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No supply expenses found for {new Date(supplyDateFilter).toLocaleDateString()}</p>
+                    <p className="text-sm">Try selecting a different date or add a new supply expense.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
       </div>
+      <Toaster />
     </div>
   );
 };

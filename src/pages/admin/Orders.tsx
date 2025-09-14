@@ -5,6 +5,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 import { 
   ShoppingCart, 
   RefreshCw,
@@ -17,39 +21,75 @@ import {
   Save,
   X
 } from "lucide-react";
-import { getOrders, updateOrder, deleteOrder, Order } from "@/lib/dataService";
+import { getOrders, updateOrder, deleteOrder, getAllOrdersFromAPI, Order } from "@/lib/dataService";
+import { useToast } from "@/hooks/use-toast";
 
 const Orders = () => {
+  const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [dateFilter, setDateFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
   const [deliveryTypeFilter, setDeliveryTypeFilter] = useState("all");
   const [paymentTypeFilter, setPaymentTypeFilter] = useState("all");
   const [productFilter, setProductFilter] = useState("all");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Load data
-  const loadOrders = () => {
+  const loadOrders = async () => {
+    setIsLoading(true);
     try {
-      const ordersData = getOrders();
-      console.log('Orders: Loading orders', { count: ordersData.length });
-      setOrders(ordersData);
+      const response = await getAllOrdersFromAPI();
+      if (response.success && Array.isArray(response.data)) {
+        console.log('Orders: Loading orders from API', { count: response.data.length });
+        
+        // Log order type breakdown
+        const standardOrders = response.data.filter(order => !isCustomOrder(order)).length;
+        const customOrders = response.data.filter(order => isCustomOrder(order)).length;
+        console.log('Orders: Order type breakdown', { standard: standardOrders, custom: customOrders });
+        
+        setOrders(response.data);
+        toast({
+          title: "Success",
+          description: `Loaded ${response.data.length} orders successfully (${standardOrders} standard, ${customOrders} custom)`,
+        });
+      } else {
+        console.error('Error loading orders:', response.error);
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load orders",
+        });
+        // Fallback to local storage if API fails
+        const localOrders = getOrders();
+        setOrders(Array.isArray(localOrders) ? localOrders : []);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
-      alert('Error loading orders. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      
+      // Check if it's an API URL configuration error
+      if (errorMessage.includes("API URL not configured")) {
+        toast({
+          title: "Configuration Error",
+          description: "Please create a .env file with VITE_API_URL pointing to your backend",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to load orders. Using local data.",
+        });
+      }
+      
+      // Fallback to local storage
+      const localOrders = getOrders();
+      setOrders(Array.isArray(localOrders) ? localOrders : []);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const clearAllOrders = () => {
-    try {
-      localStorage.removeItem('laila_orders');
-      setOrders([]);
-      console.log('Orders: All orders cleared');
-    } catch (error) {
-      console.error('Error clearing orders:', error);
-      alert('Error clearing orders. Please try again.');
-    }
-  };
 
   const handleEditOrder = (order: Order) => {
     setEditingOrderId(order.id);
@@ -61,7 +101,7 @@ const Orders = () => {
     
     try {
       updateOrder(editingOrder);
-      setOrders(orders.map(o => o.id === editingOrder.id ? editingOrder : o));
+      setOrders((Array.isArray(orders) ? orders : []).map(o => o.id === editingOrder.id ? editingOrder : o));
       setEditingOrderId(null);
       setEditingOrder(null);
       alert('Order updated successfully!');
@@ -85,7 +125,7 @@ const Orders = () => {
     if (confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
       try {
         deleteOrder(orderId);
-        setOrders(orders.filter(o => o.id !== orderId));
+        setOrders((Array.isArray(orders) ? orders : []).filter(o => o.id !== orderId));
         alert('Order deleted successfully!');
       } catch (error) {
         console.error('Error deleting order:', error);
@@ -98,21 +138,54 @@ const Orders = () => {
     loadOrders();
   }, []);
 
+  // Determine if an order is custom or standard
+  const isCustomOrder = (order: Order): boolean => {
+    // First check if orderType is explicitly set from backend
+    if (order.orderType) {
+      return order.orderType === 'custom';
+    }
+    // Fallback: Check if order has custom order specific fields
+    return !!(order.additionalPrice || order.colour || order.inscription || order.totalCost);
+  };
+
   // Filter orders based on selected filters
-  const filteredOrders = orders.filter(order => {
-    const matchesDate = dateFilter === "all" || order.orderDate === dateFilter;
+  const filteredOrders = (Array.isArray(orders) ? orders : []).filter(order => {
+    const matchesDate = !dateFilter || order.orderDate === format(dateFilter, 'yyyy-MM-dd');
     const matchesDeliveryType = deliveryTypeFilter === "all" || order.deliveryType === deliveryTypeFilter;
     const matchesPaymentType = paymentTypeFilter === "all" || order.paymentType === paymentTypeFilter;
     const matchesProduct = productFilter === "all" || order.items.some(item => 
       item.productName.toLowerCase().includes(productFilter.toLowerCase())
     );
+    const matchesOrderType = orderTypeFilter === "all" || 
+      (orderTypeFilter === "custom" && isCustomOrder(order)) ||
+      (orderTypeFilter === "standard" && !isCustomOrder(order));
     
-    return matchesDate && matchesDeliveryType && matchesPaymentType && matchesProduct;
+    return matchesDate && matchesDeliveryType && matchesPaymentType && matchesProduct && matchesOrderType;
+  }).sort((a, b) => {
+    // Sort by date and time in descending order (most recent first)
+    // Use createdAt timestamp if available (more accurate), otherwise use orderDate + orderTime
+    let dateA: Date;
+    let dateB: Date;
+    
+    if (a.createdAt) {
+      dateA = new Date(a.createdAt);
+    } else {
+      dateA = new Date(`${a.orderDate} ${a.orderTime}`);
+    }
+    
+    if (b.createdAt) {
+      dateB = new Date(b.createdAt);
+    } else {
+      dateB = new Date(`${b.orderDate} ${b.orderTime}`);
+    }
+    
+    return dateB.getTime() - dateA.getTime();
   });
 
   // Get unique values for filter options
-  const uniqueDates = [...new Set(orders.map(order => order.orderDate))].sort();
-  const uniqueProducts = [...new Set(orders.flatMap(order => order.items.map(item => item.productName)))].sort();
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const uniqueDates = [...new Set(safeOrders.map(order => order.orderDate))].sort();
+  const uniqueProducts = [...new Set(safeOrders.flatMap(order => order.items.map(item => item.productName)))].sort();
 
   // Get status badge color
   const getStatusBadgeVariant = (status: string) => {
@@ -149,6 +222,19 @@ const Orders = () => {
     }
   };
 
+  // Get order type badge
+  const getOrderTypeBadge = (order: Order) => {
+    const isCustom = isCustomOrder(order);
+    return (
+      <Badge 
+        variant={isCustom ? "default" : "secondary"} 
+        className={isCustom ? "bg-purple-100 text-purple-800 border-purple-200" : "bg-green-100 text-green-800 border-green-200"}
+      >
+        {isCustom ? "Custom Order" : "Standard Order"}
+      </Badge>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Header with Refresh Button and Filters */}
@@ -156,19 +242,37 @@ const Orders = () => {
         <div className="flex items-center gap-4 flex-wrap">
           <div className="space-y-1">
             <Label htmlFor="date-filter" className="text-xs">Date</Label>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="All dates" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All dates</SelectItem>
-                {uniqueDates.map((date) => (
-                  <SelectItem key={date} value={date}>
-                    {new Date(date).toLocaleDateString()}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-32 h-10 justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateFilter ? format(dateFilter, "MMM dd, yyyy") : "All dates"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={dateFilter}
+                  onSelect={setDateFilter}
+                  initialFocus
+                />
+                {dateFilter && (
+                  <div className="p-3 border-t">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setDateFilter(undefined)}
+                    >
+                      Clear Date Filter
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="space-y-1">
@@ -216,19 +320,27 @@ const Orders = () => {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="order-type-filter" className="text-xs">Order Type</Label>
+            <Select value={orderTypeFilter} onValueChange={setOrderTypeFilter}>
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="standard">Standard</SelectItem>
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         
         <div className="flex gap-2">
-          <Button onClick={loadOrders} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
+          <Button onClick={loadOrders} variant="outline" size="sm" disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            {isLoading ? 'Loading...' : 'Refresh'}
           </Button>
-          {orders.length > 0 && (
-            <Button onClick={clearAllOrders} variant="destructive" size="sm">
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear All Orders
-            </Button>
-          )}
         </div>
       </div>
 
@@ -237,7 +349,7 @@ const Orders = () => {
         <div className="space-y-4">
           {(() => {
             // Check if there are no orders at all
-            if (!orders || orders.length === 0) {
+            if (!safeOrders || safeOrders.length === 0) {
               return (
                 <Card>
                   <CardContent className="py-12">
@@ -263,11 +375,12 @@ const Orders = () => {
                           {new Date(order.orderDate).toLocaleDateString()} at {order.orderTime}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Created by: {order.createdBy || 'Unknown'}
+                          Created by: {order.createdBy === 'admin' ? (localStorage.getItem('username') || 'admin') : (order.createdBy || 'Unknown')}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {getOrderTypeBadge(order)}
                       <Badge variant={order.deliveryType === 'pickup' ? 'outline' : 'default'}>
                         {order.deliveryType === 'pickup' ? 'Pickup' : 'Delivery'}
                       </Badge>
@@ -356,12 +469,24 @@ const Orders = () => {
                         <h4 className="font-semibold text-sm">Items ({order.items.length})</h4>
                       </div>
                       <div className="pl-6 space-y-1">
-                        {order.items.map((item, index) => (
-                          <div key={index} className="flex justify-between text-sm">
-                            <span className="truncate">{item.productName} × {item.quantity}</span>
-                            <span className="font-medium">₵{item.subtotal.toFixed(2)}</span>
-                          </div>
-                        ))}
+                        {order.items && order.items.length > 0 ? (
+                          order.items.map((item, index) => {
+                            console.log('🔵 Rendering item:', item);
+                            // Handle different possible item structures from backend
+                            const productName = item.productName || item.product_name || item.name || 'Unknown Product';
+                            const quantity = item.quantity || 1;
+                            const subtotal = item.subtotal || item.total || (item.unitPrice || item.unit_price || 0) * quantity;
+                            
+                            return (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="truncate">{productName} × {quantity}</span>
+                                <span className="font-medium">₵{subtotal.toFixed(2)}</span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No items found</p>
+                        )}
                       </div>
                     </div>
 
@@ -397,6 +522,18 @@ const Orders = () => {
                             )}
                           </div>
                         )}
+                        {isCustomOrder(order) && order.additionalPrice && order.additionalPrice > 0 && (
+                          <div className="flex justify-between">
+                            <span>Additional Price:</span>
+                            <span>₵{order.additionalPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {isCustomOrder(order) && order.totalCost && order.totalCost > 0 && (
+                          <div className="flex justify-between">
+                            <span>Total Cost:</span>
+                            <span>₵{order.totalCost.toFixed(2)}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between font-bold text-base border-t pt-1">
                           <span>Total:</span>
                           <span className="text-primary">₵{(editingOrderId === order.id && editingOrder ? editingOrder.total : order.total).toFixed(2)}</span>
@@ -405,8 +542,8 @@ const Orders = () => {
                     </div>
                   </div>
 
-                  {/* Special Notes */}
-                  {(order.specialNotes || editingOrderId === order.id) && (
+                  {/* Special Notes and Custom Order Details */}
+                  {(order.specialNotes || editingOrderId === order.id || isCustomOrder(order)) && (
                     <div className="mt-4 p-3 bg-muted/50 rounded-lg">
                       <div className="flex items-start gap-2">
                         <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -423,6 +560,27 @@ const Orders = () => {
                           ) : (
                             <p className="text-sm text-muted-foreground">{order.specialNotes}</p>
                           )}
+                          
+                          {/* Custom Order Details */}
+                          {isCustomOrder(order) && (
+                            <div className="mt-3 pt-3 border-t border-muted-foreground/20">
+                              <p className="font-medium text-sm mb-2 text-purple-700">Custom Order Details</p>
+                              <div className="space-y-1 text-sm">
+                                {order.colour && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground">Colour:</span>
+                                    <span className="font-medium">{order.colour}</span>
+                                  </div>
+                                )}
+                                {order.inscription && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground">Inscription:</span>
+                                    <span className="font-medium italic">"{order.inscription}"</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -432,7 +590,7 @@ const Orders = () => {
             ));
           })()}
 
-          {filteredOrders.length === 0 && orders.length > 0 && (
+          {filteredOrders.length === 0 && safeOrders.length > 0 && (
             <Card>
               <CardContent className="py-8">
                 <div className="text-center text-muted-foreground">

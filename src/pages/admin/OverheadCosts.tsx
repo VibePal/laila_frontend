@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Edit, Trash2, DollarSign, Calendar, Building2 } from "lucide-react";
-import { getOverheadCosts, addOverheadCost, updateOverheadCost, deleteOverheadCost } from "@/lib/dataService";
+import { getAllOverheadCosts, createOverheadCost, updateOverheadCostAPI, deleteOverheadCostAPI, getOverheadCostTypesFromAPI, getPackagingTypesFromAPI, OverheadCostTypeApiResponse, PackagingTypeApiResponse, OverheadCostApiResponse, CreateOverheadCostRequest, UpdateOverheadCostRequest, ApiResponse } from "@/lib/dataService";
 
 interface OverheadCost {
   id: string;
@@ -24,9 +24,11 @@ interface OverheadCost {
 }
 
 const OverheadCosts = () => {
-  const [overheadCosts, setOverheadCosts] = useState<OverheadCost[]>([]);
+  const [overheadCosts, setOverheadCosts] = useState<OverheadCostApiResponse[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     category: "",
     description: "",
@@ -36,30 +38,15 @@ const OverheadCosts = () => {
     frequency: "",
     costType: "operational" as 'operational' | 'packaging'
   });
+  
+  // API-loaded categories
+  const [overheadCostTypes, setOverheadCostTypes] = useState<OverheadCostTypeApiResponse[]>([]);
+  const [packagingTypes, setPackagingTypes] = useState<PackagingTypeApiResponse[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  
+  // Track active tab
+  const [activeTab, setActiveTab] = useState<'operational' | 'packaging'>('operational');
 
-  const operationalCategories = [
-    "Rent",
-    "Utilities",
-    "Insurance",
-    "Equipment",
-    "Marketing",
-    "Office Supplies",
-    "Professional Services",
-    "Maintenance",
-    "Other"
-  ];
-
-  const packagingCategories = [
-    "Boxes",
-    "Bags",
-    "Ribbons",
-    "Tissue Paper",
-    "Labels",
-    "Stickers",
-    "Cake Boards",
-    "Cake Stands",
-    "Other"
-  ];
 
   const frequencies = [
     "Monthly",
@@ -70,33 +57,91 @@ const OverheadCosts = () => {
 
   useEffect(() => {
     loadOverheadCosts();
+    loadCategories();
   }, []);
 
   const loadOverheadCosts = async () => {
+    setIsLoading(true);
     try {
-      const costs = getOverheadCosts();
-      setOverheadCosts(costs);
+      const response: ApiResponse<OverheadCostApiResponse[]> = await getAllOverheadCosts();
+      
+      if (response.success && response.data) {
+        setOverheadCosts(response.data);
+      } else {
+        console.error('Failed to load overhead costs:', response.error);
+        setOverheadCosts([]); // Ensure it's always an array
+      }
     } catch (error) {
       console.error("Error loading overhead costs:", error);
+      setOverheadCosts([]); // Ensure it's always an array
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    setIsLoadingCategories(true);
+    try {
+      // Load overhead cost types for operational costs
+      const overheadResponse: ApiResponse<OverheadCostTypeApiResponse[]> = await getOverheadCostTypesFromAPI();
+      if (overheadResponse.success && overheadResponse.data) {
+        setOverheadCostTypes(overheadResponse.data);
+      }
+
+      // Load packaging types for packaging costs
+      const packagingResponse: ApiResponse<PackagingTypeApiResponse[]> = await getPackagingTypesFromAPI();
+      if (packagingResponse.success && packagingResponse.data) {
+        setPackagingTypes(packagingResponse.data);
+      }
+    } catch (error) {
+      console.error("Error loading categories:", error);
+    } finally {
+      setIsLoadingCategories(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     
     try {
-      const costData = {
-        ...formData,
-        amount: parseFloat(formData.amount),
-        id: editingId || Date.now().toString()
-      };
-
       if (editingId) {
-        updateOverheadCost(costData);
+        // Update existing overhead cost
+        const updateData: UpdateOverheadCostRequest = {
+          category: formData.category,
+          description: formData.description,
+          amount: parseFloat(formData.amount),
+          date: formData.date,
+          recurring: formData.recurring,
+          frequency: formData.frequency || undefined,
+          cost_type: formData.costType
+        };
+        
+        const response = await updateOverheadCostAPI(editingId, updateData);
+        if (!response.success) {
+          console.error('Failed to update overhead cost:', response.error);
+          return;
+        }
       } else {
-        addOverheadCost(costData);
+        // Create new overhead cost
+        const createData: CreateOverheadCostRequest = {
+          category: formData.category,
+          description: formData.description,
+          amount: parseFloat(formData.amount),
+          date: formData.date,
+          recurring: formData.recurring,
+          frequency: formData.frequency || undefined,
+          cost_type: formData.costType
+        };
+        
+        const response = await createOverheadCost(createData);
+        if (!response.success) {
+          console.error('Failed to create overhead cost:', response.error);
+          return;
+        }
       }
 
+      // Reset form and reload data
       setFormData({
         category: "",
         description: "",
@@ -108,13 +153,15 @@ const OverheadCosts = () => {
       });
       setIsAdding(false);
       setEditingId(null);
-      loadOverheadCosts();
+      await loadOverheadCosts();
     } catch (error) {
       console.error("Error saving overhead cost:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleEdit = (cost: OverheadCost) => {
+  const handleEdit = (cost: OverheadCostApiResponse) => {
     setEditingId(cost.id);
     setFormData({
       category: cost.category,
@@ -123,7 +170,7 @@ const OverheadCosts = () => {
       date: cost.date,
       recurring: cost.recurring,
       frequency: cost.frequency || "",
-      costType: cost.costType || "operational"
+      costType: cost.cost_type || "operational"
     });
     setIsAdding(true);
   };
@@ -131,8 +178,12 @@ const OverheadCosts = () => {
   const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this overhead cost?")) {
       try {
-        deleteOverheadCost(id);
-        loadOverheadCosts();
+        const response = await deleteOverheadCostAPI(id);
+        if (response.success) {
+          await loadOverheadCosts();
+        } else {
+          console.error('Failed to delete overhead cost:', response.error);
+        }
       } catch (error) {
         console.error("Error deleting overhead cost:", error);
       }
@@ -140,8 +191,9 @@ const OverheadCosts = () => {
   };
 
   const getTotalMonthlyCost = (costType?: 'operational' | 'packaging') => {
+    if (!Array.isArray(overheadCosts)) return 0;
     return overheadCosts.reduce((total, cost) => {
-      if (costType && cost.costType !== costType) return total;
+      if (costType && cost.cost_type !== costType) return total;
       if (cost.recurring) {
         switch (cost.frequency) {
           case "Monthly":
@@ -159,8 +211,9 @@ const OverheadCosts = () => {
   };
 
   const getTotalOneTimeCost = (costType?: 'operational' | 'packaging') => {
+    if (!Array.isArray(overheadCosts)) return 0;
     return overheadCosts.reduce((total, cost) => {
-      if (costType && cost.costType !== costType) return total;
+      if (costType && cost.cost_type !== costType) return total;
       if (!cost.recurring) {
         return total + cost.amount;
       }
@@ -169,7 +222,8 @@ const OverheadCosts = () => {
   };
 
   const getFilteredCosts = (costType: 'operational' | 'packaging') => {
-    return overheadCosts.filter(cost => cost.costType === costType);
+    if (!Array.isArray(overheadCosts)) return [];
+    return overheadCosts.filter(cost => cost.cost_type === costType);
   };
 
     return (
@@ -193,16 +247,25 @@ const OverheadCosts = () => {
                  <Select
                    value={formData.category}
                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                   disabled={isLoadingCategories}
                  >
                    <SelectTrigger>
-                     <SelectValue placeholder="Select category" />
+                     <SelectValue placeholder={isLoadingCategories ? "Loading categories..." : "Select category"} />
                    </SelectTrigger>
                    <SelectContent>
-                     {operationalCategories.map((category) => (
-                       <SelectItem key={category} value={category}>
-                         {category}
-                       </SelectItem>
-                     ))}
+                     {activeTab === 'operational' ? (
+                       overheadCostTypes.map((type) => (
+                         <SelectItem key={type.id} value={type.name}>
+                           {type.name}
+                         </SelectItem>
+                       ))
+                     ) : (
+                       packagingTypes.map((type) => (
+                         <SelectItem key={type.id} value={type.name}>
+                           {type.name}
+                         </SelectItem>
+                       ))
+                     )}
                    </SelectContent>
                  </Select>
                </div>
@@ -234,21 +297,21 @@ const OverheadCosts = () => {
              </div>
 
              <div className="space-y-2">
-               <Label htmlFor="description">Description</Label>
+               <Label htmlFor="description">Description (Optional)</Label>
                <Textarea
                  id="description"
                  value={formData.description}
                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                 placeholder="Enter description of the overhead cost"
-                 required
+                 placeholder="Enter description of the overhead cost (optional)"
+                 rows={3}
                />
              </div>
 
 
 
              <div className="flex gap-2 justify-end">
-               <Button type="submit">
-                 {editingId ? "Update" : "Add"} Cost
+               <Button type="submit" disabled={isSubmitting}>
+                 {isSubmitting ? "Saving..." : (editingId ? "Update" : "Add")} Cost
                </Button>
                <Button
                  type="button"
@@ -277,7 +340,7 @@ const OverheadCosts = () => {
              {/* Costs Table with Tabs */}
        <Card>
          <CardContent>
-          <Tabs defaultValue="operational" className="w-full">
+          <Tabs defaultValue="operational" className="w-full" onValueChange={(value) => setActiveTab(value as 'operational' | 'packaging')}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="operational">Operational Costs</TabsTrigger>
               <TabsTrigger value="packaging">Packaging Costs</TabsTrigger>
@@ -312,7 +375,10 @@ const OverheadCosts = () => {
                 </div>
 
                 <div className="flex items-center justify-between mb-4">
-                  <Button onClick={() => setIsAdding(true)}>
+                  <Button onClick={() => {
+                    setFormData({ ...formData, costType: 'operational', category: "" });
+                    setIsAdding(true);
+                  }}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Operational Cost
                   </Button>
@@ -337,7 +403,13 @@ const OverheadCosts = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getFilteredCosts('operational').length === 0 ? (
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        Loading operational costs...
+                      </TableCell>
+                    </TableRow>
+                  ) : getFilteredCosts('operational').length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center text-muted-foreground">
                         No operational costs found. Add your first cost to get started.
@@ -349,7 +421,7 @@ const OverheadCosts = () => {
                         <TableCell>
                           <Badge variant="outline">{cost.category}</Badge>
                         </TableCell>
-                        <TableCell>{cost.description}</TableCell>
+                        <TableCell>{cost.description || <span className="text-muted-foreground italic">No description</span>}</TableCell>
                         <TableCell>₵{cost.amount.toFixed(2)}</TableCell>
                         <TableCell>{new Date(cost.date).toLocaleDateString()}</TableCell>
                         <TableCell>
@@ -390,7 +462,10 @@ const OverheadCosts = () => {
               </div>
 
               <div className="flex items-center justify-between mb-4">
-                <Button onClick={() => setIsAdding(true)}>
+                <Button onClick={() => {
+                  setFormData({ ...formData, costType: 'packaging', category: "" });
+                  setIsAdding(true);
+                }}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Packaging Cost
                 </Button>
@@ -415,7 +490,13 @@ const OverheadCosts = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getFilteredCosts('packaging').length === 0 ? (
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        Loading packaging costs...
+                      </TableCell>
+                    </TableRow>
+                  ) : getFilteredCosts('packaging').length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center text-muted-foreground">
                         No packaging costs found. Add your first cost to get started.
@@ -427,7 +508,7 @@ const OverheadCosts = () => {
                         <TableCell>
                           <Badge variant="outline">{cost.category}</Badge>
                         </TableCell>
-                        <TableCell>{cost.description}</TableCell>
+                        <TableCell>{cost.description || <span className="text-muted-foreground italic">No description</span>}</TableCell>
                         <TableCell>₵{cost.amount.toFixed(2)}</TableCell>
                         <TableCell>{new Date(cost.date).toLocaleDateString()}</TableCell>
                         <TableCell>
