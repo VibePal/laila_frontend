@@ -50,6 +50,7 @@ export interface Order {
   orderDate: string;
   orderTime: string;
   createdBy: string; // Username of the staff member who created the order
+  editedBy?: string; // Username of the staff member who last edited the order
   selectedPackage?: string; // ID of the selected packaging type
   packageName?: string; // Name of the selected packaging type
   // Custom order fields
@@ -77,9 +78,9 @@ export interface CreateOrderRequest {
   total: number;
   orderDate: string;
   orderTime: string;
-  createdBy: string;
   selectedPackage?: string;
   packageName?: string;
+  createdBy?: string; // Username of the staff member creating the order
 }
 
 // Interface for creating custom orders via API (without id field)
@@ -95,13 +96,13 @@ export interface CreateCustomOrderRequest {
   total: number;
   orderDate: string;
   orderTime: string;
-  createdBy: string;
   selectedPackage?: string;
   packageName?: string;
   additionalPrice?: number;
   colour?: string;
   inscription?: string;
   totalCost?: number;
+  createdBy?: string; // Username of the staff member creating the order
 }
 
 export interface Expense {
@@ -3156,6 +3157,9 @@ export const getAllOrdersFromAPI = async (): Promise<ApiResponse<Order[]>> => {
         console.log('🔵 Backend order created_by_username field:', backendOrder.created_by_username);
         console.log('🔵 Backend order username field:', backendOrder.username);
         console.log('🔵 Backend order staff_username field:', backendOrder.staff_username);
+        console.log('🔵 Backend order edited_by field:', backendOrder.edited_by);
+        console.log('🔵 Backend order edited_by_username field:', backendOrder.edited_by_username);
+        console.log('🔵 Backend order last_edited_by field:', backendOrder.last_edited_by);
         console.log('🔵 Backend order items field:', backendOrder.items);
         
         return {
@@ -3184,7 +3188,10 @@ export const getAllOrdersFromAPI = async (): Promise<ApiResponse<Order[]>> => {
           orderDate: backendOrder.order_date,
           orderTime: backendOrder.order_time,
           // Try different possible field names for created_by
-          createdBy: backendOrder.created_by || backendOrder.created_by_username || backendOrder.username || backendOrder.staff_username || 'Unknown',
+          // Prioritize username fields over ID fields
+          createdBy: backendOrder.created_by_username || backendOrder.username || backendOrder.staff_username || backendOrder.created_by || 'Unknown',
+          // Map editedBy field from backend
+          editedBy: backendOrder.edited_by_username || backendOrder.edited_by || backendOrder.last_edited_by || null,
           selectedPackage: backendOrder.selected_package,
           packageName: backendOrder.package_name,
           // Custom order fields
@@ -3685,6 +3692,118 @@ export const getFinancialBreakdown = async (params?: {
     };
   } catch (error) {
     console.error('Error getting financial breakdown:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
+  }
+};
+
+// Password verification interface
+export interface PasswordVerificationRequest {
+  password: string;
+}
+
+export interface PasswordVerificationResponse {
+  user_id: string;
+  username: string;
+  email: string;
+}
+
+// Order update interface
+export interface UpdateOrderRequest {
+  customerName: string;
+  customerContact: string;
+  deliveryType: 'pickup' | 'delivery';
+  hostel?: string;
+  paymentType: 'momo' | 'cash';
+  deliveryFee: number;
+  specialNotes: string;
+  items: OrderItem[];
+  total: number;
+  additionalPrice?: number;
+  colour?: string;
+  inscription?: string;
+  totalCost?: number;
+  editedBy: string;
+}
+
+export interface UpdateOrderResponse {
+  id: string;
+  updatedAt: string;
+  editedBy: string;
+  total: number;
+}
+
+// Password verification API
+export const verifyPassword = async (password: string): Promise<ApiResponse<PasswordVerificationResponse>> => {
+  try {
+    const response = await makeAuthenticatedRequest('/api/v1/auth/verify-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password }),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.detail || errorMessage;
+      } catch (parseError) {
+        const responseText = await response.text().catch(() => '');
+        errorMessage = responseText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    
+    return {
+      success: true,
+      data: data.data
+    };
+  } catch (error) {
+    console.error('Error verifying password:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
+  }
+};
+
+// Update order API
+export const updateOrderAPI = async (orderId: string, orderData: UpdateOrderRequest): Promise<ApiResponse<UpdateOrderResponse>> => {
+  try {
+    const response = await makeAuthenticatedRequest(`/api/v1/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(orderData),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.detail || errorMessage;
+      } catch (parseError) {
+        const responseText = await response.text().catch(() => '');
+        errorMessage = responseText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    
+    return {
+      success: true,
+      data: data.data
+    };
+  } catch (error) {
+    console.error('Error updating order:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred'

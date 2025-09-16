@@ -11,11 +11,6 @@ import { Plus, Trash2, ShoppingCart } from "lucide-react";
 import { getProductsFromAPI, getPackagingTypesFromAPI, saveOrder, saveStandardOrderToAPI, saveCustomOrderToAPI, updateProductQuantities, Product, Order, CreateOrderRequest, CreateCustomOrderRequest, ProductApiResponse, PackagingTypeApiResponse } from "@/lib/dataService";
 import { useToast } from "@/hooks/use-toast";
 
-// Get current user from localStorage or session
-const getCurrentUser = (): string => {
-  const currentUser = localStorage.getItem('username') || localStorage.getItem('currentUser') || 'admin';
-  return currentUser;
-};
 
 interface OrderItem {
   productId: string;
@@ -388,9 +383,9 @@ const CreateOrder = () => {
       total: calculateTotal(),
       orderDate: new Date().toISOString().split('T')[0],
       orderTime: new Date().toLocaleTimeString(),
-      createdBy: getCurrentUser(),
       selectedPackage: selectedPackage !== "none" ? selectedPackage : undefined,
       packageName: selectedPackage !== "none" ? availablePackages.find(p => p.id === selectedPackage)?.name : undefined,
+      createdBy: localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Admin',
     };
 
     try {
@@ -474,13 +469,13 @@ const CreateOrder = () => {
       total: calculateCustomOrderTotal(),
       orderDate: new Date().toISOString().split('T')[0],
       orderTime: new Date().toLocaleTimeString(),
-      createdBy: getCurrentUser(),
       selectedPackage: customOrderSelectedPackage !== "none" ? customOrderSelectedPackage : undefined,
       packageName: customOrderSelectedPackage !== "none" ? availablePackages.find(p => p.id === customOrderSelectedPackage)?.name : undefined,
       additionalPrice: parseFloat(customOrderAdditionalPrice) || 0,
       colour: customOrderColour,
       inscription: customOrderInscription,
       totalCost: parseFloat(customOrderTotalCost) || 0,
+      createdBy: localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Admin',
     };
 
     try {
