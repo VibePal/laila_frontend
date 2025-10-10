@@ -29,7 +29,11 @@ import {
 import { getOrders, updateOrder, deleteOrder, getAllOrdersFromAPI, Order, getStaffFromAPI, StaffApiResponse, getProductsFromAPI, getPackagingTypesFromAPI, updateOrderAPI, UpdateOrderRequest, verifyPassword } from "@/lib/dataService";
 import { useToast } from "@/hooks/use-toast";
 
-const Orders = () => {
+interface OrdersProps {
+  filterByCurrentUser?: boolean; // If true, only show orders created by the current user
+}
+
+const Orders: React.FC<OrdersProps> = ({ filterByCurrentUser = false }) => {
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
@@ -59,8 +63,14 @@ const Orders = () => {
   const [isValidatingPassword, setIsValidatingPassword] = useState(false);
   const [passwordValidationTimer, setPasswordValidationTimer] = useState<NodeJS.Timeout | null>(null);
 
-  // Load staff members
+  // Load staff members (only for admin - staff users get 403)
   const loadStaffMembers = async () => {
+    const userRole = localStorage.getItem('userRole');
+    // Only admin can fetch staff list, staff users get 403 Forbidden
+    if (userRole !== 'admin') {
+      return; // Skip this API call for non-admin users
+    }
+    
     try {
       const response = await getStaffFromAPI();
       if (response.success && Array.isArray(response.data)) {
@@ -105,7 +115,7 @@ const Orders = () => {
       clearTimeout(passwordValidationTimer);
     }
 
-    // Set new timer
+    // Set new timer - increased delay to 1000ms for better performance
     const timer = setTimeout(async () => {
       if (passwordValue.trim()) {
         setIsValidatingPassword(true);
@@ -130,7 +140,7 @@ const Orders = () => {
         setValidatedUsername("");
         setPasswordError("");
       }
-    }, 500);
+    }, 1000); // Increased from 500ms to 1000ms for performance
 
     setPasswordValidationTimer(timer);
   };
@@ -141,25 +151,10 @@ const Orders = () => {
     try {
       const response = await getAllOrdersFromAPI();
       if (response.success && Array.isArray(response.data)) {
-        console.log('Orders: Loading orders from API', { count: response.data.length });
+        setOrders(response.data);
         
-        // Debug: Check createdBy and editedBy fields
-        const ordersWithCreatedBy = response.data.filter(order => order.createdBy);
-        const ordersWithEditedBy = response.data.filter(order => order.editedBy);
-        console.log('Orders: CreatedBy field analysis:', {
-          total: response.data.length,
-          withCreatedBy: ordersWithCreatedBy.length,
-          createdByValues: ordersWithCreatedBy.map(o => ({ id: o.id, createdBy: o.createdBy })),
-          withEditedBy: ordersWithEditedBy.length,
-          editedByValues: ordersWithEditedBy.map(o => ({ id: o.id, editedBy: o.editedBy }))
-        });
-        
-        // Log order type breakdown
         const standardOrders = response.data.filter(order => !isCustomOrder(order)).length;
         const customOrders = response.data.filter(order => isCustomOrder(order)).length;
-        console.log('Orders: Order type breakdown', { standard: standardOrders, custom: customOrders });
-        
-        setOrders(response.data);
         toast({
           title: "Success",
           description: `Loaded ${response.data.length} orders successfully (${standardOrders} standard, ${customOrders} custom)`,
@@ -240,8 +235,20 @@ const Orders = () => {
       const response = await updateOrderAPI(editingOrder.id, orderData);
       
       if (response.success && response.data) {
+        // Merge response with existing order data to preserve all fields
+        // This ensures fields like createdBy, orderDate, orderTime, and items are not lost
+        const updatedOrder: Order = {
+          ...editingOrder,  // Start with the full existing order
+          ...response.data,  // Override with any fields returned by the API
+          // Ensure critical fields are preserved if not in response
+          createdBy: response.data.createdBy || editingOrder.createdBy,
+          orderDate: response.data.orderDate || editingOrder.orderDate,
+          orderTime: response.data.orderTime || editingOrder.orderTime,
+          items: response.data.items || editingOrder.items,
+        };
+        
         // Update local state
-        setOrders(orders.map(o => o.id === editingOrder.id ? response.data : o));
+        setOrders(orders.map(o => o.id === editingOrder.id ? updatedOrder : o));
         
         toast({
           title: "Success",
@@ -475,10 +482,37 @@ const Orders = () => {
   const getCreatorDisplayName = (createdBy: string | undefined): string => {
     if (!createdBy) return 'Unknown';
     
-    // If it's a number (user ID), try to get username from staff map
+    const currentUsername = localStorage.getItem('username');
+    const currentUserEmail = localStorage.getItem('userEmail');
+    
+    // If it's a number (user ID), try to get username from staff map or token
     if (/^\d+$/.test(createdBy)) {
+      // First check if it's the current user by decoding their token
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        try {
+          // Decode JWT token to get user_id (simple base64 decode of payload)
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const tokenUserId = payload.user_id?.toString();
+          const tokenSub = payload.sub; // Usually the username
+          
+          if (tokenUserId === createdBy || payload.user_id === parseInt(createdBy)) {
+            // This order was created by the current user
+            return tokenSub || currentUsername || currentUserEmail || 'You';
+          }
+        } catch (e) {
+          console.error('Error decoding token for user display:', e);
+        }
+      }
+      
+      // Try to get username from staff map
       const username = staffMap.get(createdBy);
-      return username || `User #${createdBy}`;
+      if (username) {
+        return username;
+      }
+      
+      // If staffMap doesn't have it, just show the username from localStorage if IDs might match
+      return `User #${createdBy}`;
     }
     
     // If it's an email, extract username part
@@ -685,16 +719,17 @@ const Orders = () => {
                       <div className="pl-6 space-y-1">
                         {order.items && order.items.length > 0 ? (
                           order.items.map((item, index) => {
-                            console.log('🔵 Rendering item:', item);
                             // Handle different possible item structures from backend
                             const productName = item.productName || item.product_name || item.name || 'Unknown Product';
                             const quantity = item.quantity || 1;
                             const subtotal = item.subtotal || item.total || (item.unitPrice || item.unit_price || 0) * quantity;
+                            // Ensure subtotal is a valid number
+                            const safeSubtotal = typeof subtotal === 'number' && !isNaN(subtotal) ? subtotal : 0;
                             
                             return (
                               <div key={index} className="flex justify-between text-sm">
                                 <span className="truncate">{productName} × {quantity}</span>
-                                <span className="font-medium">₵{subtotal.toFixed(2)}</span>
+                                <span className="font-medium">₵{safeSubtotal.toFixed(2)}</span>
                               </div>
                             );
                           })
@@ -713,29 +748,29 @@ const Orders = () => {
                       <div className="pl-6 space-y-1 text-sm">
                         <div className="flex justify-between">
                           <span>Subtotal:</span>
-                          <span>₵{(order.total - order.deliveryFee).toFixed(2)}</span>
+                          <span>₵{((order.total || 0) - (order.deliveryFee || 0)).toFixed(2)}</span>
                         </div>
-                        {order.deliveryFee > 0 && (
+                        {(order.deliveryFee || 0) > 0 && (
                           <div className="flex justify-between">
                             <span>Delivery:</span>
-                            <span>₵{order.deliveryFee.toFixed(2)}</span>
+                            <span>₵{(order.deliveryFee || 0).toFixed(2)}</span>
                           </div>
                         )}
                         {isCustomOrder(order) && order.additionalPrice && order.additionalPrice > 0 && (
                           <div className="flex justify-between">
                             <span>Additional Price:</span>
-                            <span>₵{order.additionalPrice.toFixed(2)}</span>
+                            <span>₵{(order.additionalPrice || 0).toFixed(2)}</span>
                           </div>
                         )}
                         {isCustomOrder(order) && order.totalCost && order.totalCost > 0 && (
                           <div className="flex justify-between">
                             <span>Total Cost:</span>
-                            <span>₵{order.totalCost.toFixed(2)}</span>
+                            <span>₵{(order.totalCost || 0).toFixed(2)}</span>
                           </div>
                         )}
                         <div className="flex justify-between font-bold text-base border-t pt-1">
                           <span>Total:</span>
-                          <span className="text-primary">₵{order.total.toFixed(2)}</span>
+                          <span className="text-primary">₵{(order.total || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -1087,6 +1122,12 @@ const Orders = () => {
                       onChange={(e) => {
                         setPassword(e.target.value);
                         debouncedValidatePassword(e.target.value);
+                      }}
+                      onBlur={(e) => {
+                        // Validate immediately when user leaves the field
+                        if (e.target.value.trim() && !validatedUsername && !isValidatingPassword) {
+                          debouncedValidatePassword(e.target.value);
+                        }
                       }}
                       placeholder="Enter your password"
                       className="max-w-md"

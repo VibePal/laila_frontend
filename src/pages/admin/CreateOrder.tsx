@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Trash2, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, ShoppingCart, RefreshCw } from "lucide-react";
 import { getProductsFromAPI, getPackagingTypesFromAPI, saveOrder, saveStandardOrderToAPI, saveCustomOrderToAPI, updateProductQuantities, Product, Order, CreateOrderRequest, CreateCustomOrderRequest, ProductApiResponse, PackagingTypeApiResponse } from "@/lib/dataService";
 import { useToast } from "@/hooks/use-toast";
 
@@ -59,6 +59,8 @@ const CreateOrder = () => {
   const [selectedPackage, setSelectedPackage] = useState("");
   const [packageQuantity, setPackageQuantity] = useState("");
   const [orderPackages, setOrderPackages] = useState<OrderItem[]>([]);
+  const [productsLastUpdated, setProductsLastUpdated] = useState<Date | null>(null);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
   useEffect(() => {
     loadProducts();
@@ -66,17 +68,29 @@ const CreateOrder = () => {
   }, []);
 
   const loadProducts = async () => {
+    setIsLoadingProducts(true);
     try {
       const response = await getProductsFromAPI();
       if (response.success && response.data) {
         setAvailableProducts(response.data);
+        setProductsLastUpdated(new Date());
       } else {
         console.error('Error loading products:', response.error);
-        alert('Error loading products. Please try again.');
+        toast({
+          title: "Error",
+          description: "Failed to load products. Please try again.",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Error loading products:', error);
-      alert('Error loading products. Please try again.');
+      toast({
+        title: "Error",
+        description: "Failed to load products. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingProducts(false);
     }
   };
 
@@ -95,20 +109,11 @@ const CreateOrder = () => {
     }
   };
 
-  const addOrderItem = () => {
+  const addOrderItem = async () => {
     if (!selectedProduct || !productQuantity) {
       toast({
         title: "Validation Error",
         description: "Please select a product and enter quantity",
-      });
-      return;
-    }
-
-    const product = availableProducts.find(p => p.id === selectedProduct);
-    if (!product) {
-      toast({
-        title: "Error",
-        description: "Product not found",
       });
       return;
     }
@@ -122,17 +127,63 @@ const CreateOrder = () => {
       return;
     }
 
-    // Check if product has enough quantity available
-    if (product.quantity < quantity) {
+    // Check if product data is stale (older than 10 seconds)
+    const isCacheStale = !productsLastUpdated || (Date.now() - productsLastUpdated.getTime() > 10000);
+    
+    // Only fetch fresh data if cache is stale
+    if (isCacheStale) {
+      setIsLoadingProducts(true);
+      try {
+        const response = await getProductsFromAPI();
+        if (!response.success || !response.data) {
+          toast({
+            title: "Error",
+            description: "Failed to verify product availability. Please try again.",
+            variant: "destructive"
+          });
+          setIsLoadingProducts(false);
+          return;
+        }
+        setAvailableProducts(response.data);
+        setProductsLastUpdated(new Date());
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to verify product availability. Please try again.",
+          variant: "destructive"
+        });
+        setIsLoadingProducts(false);
+        return;
+      } finally {
+        setIsLoadingProducts(false);
+      }
+    }
+    
+    // Validate with current data (fresh or cached if < 10 seconds old)
+    const product = availableProducts.find(p => p.id === selectedProduct);
+    if (!product) {
       toast({
-        title: "Insufficient Stock",
-        description: `Only ${product.quantity} units available for ${product.name}`,
+        title: "Error",
+        description: "Product not found",
       });
       return;
     }
 
     const existingItemIndex = orderItems.findIndex(item => item.productId === selectedProduct);
+    const existingQuantity = existingItemIndex >= 0 ? orderItems[existingItemIndex].quantity : 0;
+    const totalQuantity = existingQuantity + quantity;
     
+    // Check if product has enough quantity available for the total
+    if (product.quantity < totalQuantity) {
+      toast({
+        title: "Insufficient Stock",
+        description: `Only ${product.quantity} units available for ${product.name}. You already have ${existingQuantity} unit(s) in the order.`,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Validation passed - add the item
     if (existingItemIndex >= 0) {
       // Update existing item
       const updatedItems = [...orderItems];
@@ -222,20 +273,11 @@ const CreateOrder = () => {
     return productSubtotal + packageSubtotal + delivery;
   };
 
-  const addCustomOrderItem = () => {
+  const addCustomOrderItem = async () => {
     if (!customOrderSelectedProduct || !customOrderProductQuantity) {
       toast({
         title: "Validation Error",
         description: "Please select a product and enter quantity",
-      });
-      return;
-    }
-
-    const product = availableProducts.find(p => p.id === customOrderSelectedProduct);
-    if (!product) {
-      toast({
-        title: "Error",
-        description: "Product not found",
       });
       return;
     }
@@ -249,17 +291,63 @@ const CreateOrder = () => {
       return;
     }
 
-    // Check if product has enough quantity available
-    if (product.quantity < quantity) {
+    // Check if product data is stale (older than 10 seconds)
+    const isCacheStale = !productsLastUpdated || (Date.now() - productsLastUpdated.getTime() > 10000);
+    
+    // Only fetch fresh data if cache is stale
+    if (isCacheStale) {
+      setIsLoadingProducts(true);
+      try {
+        const response = await getProductsFromAPI();
+        if (!response.success || !response.data) {
+          toast({
+            title: "Error",
+            description: "Failed to verify product availability. Please try again.",
+            variant: "destructive"
+          });
+          setIsLoadingProducts(false);
+          return;
+        }
+        setAvailableProducts(response.data);
+        setProductsLastUpdated(new Date());
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to verify product availability. Please try again.",
+          variant: "destructive"
+        });
+        setIsLoadingProducts(false);
+        return;
+      } finally {
+        setIsLoadingProducts(false);
+      }
+    }
+    
+    // Validate with current data (fresh or cached if < 10 seconds old)
+    const product = availableProducts.find(p => p.id === customOrderSelectedProduct);
+    if (!product) {
       toast({
-        title: "Insufficient Stock",
-        description: `Only ${product.quantity} units available for ${product.name}`,
+        title: "Error",
+        description: "Product not found",
       });
       return;
     }
 
     const existingItemIndex = customOrderItems.findIndex(item => item.productId === customOrderSelectedProduct);
+    const existingQuantity = existingItemIndex >= 0 ? customOrderItems[existingItemIndex].quantity : 0;
+    const totalQuantity = existingQuantity + quantity;
     
+    // Check if product has enough quantity available for the total
+    if (product.quantity < totalQuantity) {
+      toast({
+        title: "Insufficient Stock",
+        description: `Only ${product.quantity} units available for ${product.name}. You already have ${existingQuantity} unit(s) in the order.`,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Validation passed - add the item
     if (existingItemIndex >= 0) {
       // Update existing item
       const updatedItems = [...customOrderItems];
@@ -385,7 +473,7 @@ const CreateOrder = () => {
       orderTime: new Date().toLocaleTimeString(),
       selectedPackage: selectedPackage !== "none" ? selectedPackage : undefined,
       packageName: selectedPackage !== "none" ? availablePackages.find(p => p.id === selectedPackage)?.name : undefined,
-      createdBy: localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Admin',
+      // DON'T send createdBy - let backend set it from authentication token
     };
 
     try {
@@ -424,9 +512,17 @@ const CreateOrder = () => {
       setPackageQuantity("");
     } catch (error) {
       console.error('Error creating order:', error);
+      const errorMessage = error instanceof Error ? error.message : "Error creating order. Please try again.";
+      
+      // If it's a stock error, refresh products to show accurate inventory
+      if (errorMessage.includes('Insufficient quantity') || errorMessage.includes('Available:')) {
+        await loadProducts();
+      }
+      
       toast({
         title: "Error",
-        description: "Error creating order. Please try again.",
+        description: errorMessage,
+        variant: "destructive"
       });
     }
   };
@@ -475,7 +571,7 @@ const CreateOrder = () => {
       colour: customOrderColour,
       inscription: customOrderInscription,
       totalCost: parseFloat(customOrderTotalCost) || 0,
-      createdBy: localStorage.getItem('username') || localStorage.getItem('userEmail') || 'Admin',
+      // DON'T send createdBy - let backend set it from authentication token
     };
 
     try {
@@ -518,9 +614,17 @@ const CreateOrder = () => {
       setCustomOrderSpecialNotes("");
     } catch (error) {
       console.error('Error creating custom order:', error);
+      const errorMessage = error instanceof Error ? error.message : "Error creating custom order. Please try again.";
+      
+      // If it's a stock error, refresh products to show accurate inventory
+      if (errorMessage.includes('Insufficient quantity') || errorMessage.includes('Available:')) {
+        await loadProducts();
+      }
+      
       toast({
         title: "Error",
-        description: "Error creating custom order. Please try again.",
+        description: errorMessage,
+        variant: "destructive"
       });
     }
   };
@@ -607,7 +711,25 @@ const CreateOrder = () => {
 
                   {/* Product Selection */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Add Products</h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">Add Products</h3>
+                      <div className="flex items-center gap-2">
+                        {productsLastUpdated && (
+                          <span className="text-xs text-muted-foreground">
+                            Last updated: {productsLastUpdated.toLocaleTimeString()}
+                          </span>
+                        )}
+                        <Button 
+                          onClick={loadProducts} 
+                          variant="outline" 
+                          size="sm"
+                          disabled={isLoadingProducts}
+                        >
+                          <RefreshCw className={`h-3 w-3 mr-1 ${isLoadingProducts ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </Button>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <Label htmlFor="product-select">Product</Label>
@@ -864,7 +986,25 @@ const CreateOrder = () => {
 
                   {/* Product Selection */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Add Products</h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">Add Products</h3>
+                      <div className="flex items-center gap-2">
+                        {productsLastUpdated && (
+                          <span className="text-xs text-muted-foreground">
+                            Last updated: {productsLastUpdated.toLocaleTimeString()}
+                          </span>
+                        )}
+                        <Button 
+                          onClick={loadProducts} 
+                          variant="outline" 
+                          size="sm"
+                          disabled={isLoadingProducts}
+                        >
+                          <RefreshCw className={`h-3 w-3 mr-1 ${isLoadingProducts ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </Button>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <Label htmlFor="custom-product-select">Product</Label>

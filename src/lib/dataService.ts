@@ -501,16 +501,7 @@ export const debugAuthStatus = (): void => {
   const userEmail = localStorage.getItem("userEmail");
   const username = localStorage.getItem("username");
   
-  console.log('=== AUTHENTICATION DEBUG INFO ===');
-  console.log('Token exists:', !!token);
-  console.log('Token type:', tokenType);
-  console.log('Token expires in:', tokenExpiresIn);
-  console.log('User role:', userRole);
-  console.log('User email:', userEmail);
-  console.log('Username:', username);
-  console.log('Token preview:', token ? `${token.substring(0, 20)}...` : 'No token');
-  console.log('Full headers:', getAuthHeaders());
-  console.log('================================');
+  // Debug logging disabled for performance
 };
 
 export const makeAuthenticatedRequest = async (
@@ -539,42 +530,14 @@ export const makeAuthenticatedRequest = async (
     },
   };
 
-  console.log('🔵 Making authenticated request:', {
-    url: fullUrl,
-    method: options.method || 'GET',
-    headers: requestOptions.headers,
-    body: options.body
-  });
-
-  // Debug auth status before making request
-  debugAuthStatus();
-  
-  // Additional debugging for PATCH requests
-  if (options.method === 'PATCH') {
-    console.log('🔵 PATCH request debugging:');
-    console.log('🔵 Request body:', options.body);
-    console.log('🔵 Content-Type header:', requestOptions.headers?.['Content-Type']);
-    console.log('🔵 Authorization header:', requestOptions.headers?.['Authorization']);
-  }
-  
-  // Additional debugging for DELETE requests
-  if (options.method === 'DELETE') {
-    console.log('🔵 DELETE request debugging:');
-    console.log('🔵 Authorization header:', requestOptions.headers?.['Authorization']);
-    console.log('🔵 Full request headers:', requestOptions.headers);
-  }
-
-  console.log('🔵 About to make fetch request to:', fullUrl);
+  // Minimal logging for performance
   let response = await fetch(fullUrl, requestOptions);
-  console.log('🔵 Fetch request completed, response status:', response.status);
   
   // Handle 401 Unauthorized - try to refresh token
   if (response.status === 401 && !url.includes('/auth/refresh')) {
-    console.log('🔄 Received 401, attempting token refresh...');
     const refreshSuccess = await refreshToken();
     
     if (refreshSuccess) {
-      console.log('✅ Token refreshed, retrying original request...');
       // Retry the original request with new token
       const retryOptions: RequestInit = {
         ...options,
@@ -584,23 +547,11 @@ export const makeAuthenticatedRequest = async (
         },
       };
       response = await fetch(fullUrl, retryOptions);
-      console.log('🔵 Retry request completed, response status:', response.status);
     } else {
-      console.log('❌ Token refresh failed, user will need to log in again');
       logout();
       window.location.href = '/login';
-      return response; // Return the original 401 response
+      return response;
     }
-  }
-  
-  // Log response details for debugging - DON'T consume the body
-  if (!response.ok) {
-    console.log('❌ Request failed with status:', response.status);
-    console.log('❌ Response headers:', Object.fromEntries(response.headers.entries()));
-    console.log('❌ Response body will be handled by calling function');
-    
-    // Note: We don't consume the response body here to allow calling functions
-    // to properly handle error responses and parse error details
   }
   
   return response;
@@ -2886,33 +2837,23 @@ export const createProductAPI = async (productData: ProductApiRequest): Promise<
 
 export const getProductsFromAPI = async (): Promise<ApiResponse<ProductApiResponse[]>> => {
   try {
-    console.log('🔵 getProductsFromAPI called');
-    console.log('🔵 API URL will be:', `${import.meta.env.VITE_API_URL}/api/v1/products/`);
-    
     const response = await makeAuthenticatedRequest('/api/v1/products/', {
       method: 'GET',
     });
-
-    console.log('🔵 Products fetch response status:', response.status);
-    console.log('🔵 Products fetch response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       let errorMessage = `HTTP error! status: ${response.status}`;
       try {
         const errorData = await response.json();
-        console.error('❌ Products fetch error response:', errorData);
         errorMessage = errorData.message || errorData.detail || errorMessage;
       } catch (parseError) {
-        console.error('❌ Could not parse error response:', parseError);
         const responseText = await response.text().catch(() => '');
-        console.error('❌ Raw error response:', responseText);
         errorMessage = responseText || errorMessage;
       }
       throw new Error(errorMessage);
     }
 
     const data = await response.json();
-    console.log('✅ Products fetch success:', data);
     
     return {
       success: true,
@@ -2920,7 +2861,7 @@ export const getProductsFromAPI = async (): Promise<ApiResponse<ProductApiRespon
       message: 'Products fetched successfully'
     };
   } catch (error) {
-    console.error('❌ Error fetching products:', error);
+    console.error('Error fetching products:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch products'
@@ -3244,33 +3185,23 @@ export const updateProductQuantities = async (orderItems: { productId: string; q
 // Get all orders from API
 export const getAllOrdersFromAPI = async (): Promise<ApiResponse<Order[]>> => {
   try {
-    console.log('🔵 getAllOrdersFromAPI: Starting API call to /api/v1/orders/all');
     const response = await makeAuthenticatedRequest('/api/v1/orders/all', {
       method: 'GET',
     });
-
-    console.log('🔵 getAllOrdersFromAPI: Response status:', response.status);
-    console.log('🔵 getAllOrdersFromAPI: Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       let errorMessage = `HTTP error! status: ${response.status}`;
       try {
         const errorData = await response.json();
-        console.error('❌ Get all orders error response:', errorData);
         errorMessage = errorData.message || errorData.detail || errorMessage;
       } catch (parseError) {
-        console.error('❌ Could not parse error response:', parseError);
         const responseText = await response.text().catch(() => '');
-        console.error('❌ Raw error response:', responseText);
         errorMessage = responseText || errorMessage;
       }
       throw new Error(errorMessage);
     }
 
     const rawResponse = await response.json();
-    console.log('🔵 getAllOrdersFromAPI: Raw API response:', rawResponse);
-    console.log('🔵 getAllOrdersFromAPI: Response type:', typeof rawResponse);
-    console.log('🔵 getAllOrdersFromAPI: Is array:', Array.isArray(rawResponse));
     
     // Handle the expected backend response format
     let ordersData: Order[] = [];
@@ -3278,21 +3209,9 @@ export const getAllOrdersFromAPI = async (): Promise<ApiResponse<Order[]>> => {
     if (rawResponse && typeof rawResponse === 'object' && rawResponse.orders && Array.isArray(rawResponse.orders)) {
       // Expected backend format: { orders: [...], total_count: X, order_types: {...} }
       const backendOrders = rawResponse.orders;
-      console.log('🔵 getAllOrdersFromAPI: Found orders array, count:', backendOrders.length);
-      console.log('🔵 getAllOrdersFromAPI: Total count from backend:', rawResponse.total_count);
-      console.log('🔵 getAllOrdersFromAPI: Order types summary:', rawResponse.order_types);
       
       // Map backend field names to frontend interface
       ordersData = backendOrders.map((backendOrder: any) => {
-        console.log('🔵 Mapping backend order:', backendOrder);
-        console.log('🔵 Backend order created_by field:', backendOrder.created_by);
-        console.log('🔵 Backend order created_by_username field:', backendOrder.created_by_username);
-        console.log('🔵 Backend order username field:', backendOrder.username);
-        console.log('🔵 Backend order staff_username field:', backendOrder.staff_username);
-        console.log('🔵 Backend order edited_by field:', backendOrder.edited_by);
-        console.log('🔵 Backend order edited_by_username field:', backendOrder.edited_by_username);
-        console.log('🔵 Backend order last_edited_by field:', backendOrder.last_edited_by);
-        console.log('🔵 Backend order items field:', backendOrder.items);
         
         return {
           id: backendOrder.id,
@@ -3321,9 +3240,9 @@ export const getAllOrdersFromAPI = async (): Promise<ApiResponse<Order[]>> => {
           orderTime: backendOrder.order_time,
           // Try different possible field names for created_by
           // Prioritize username fields over ID fields
-          createdBy: backendOrder.created_by_username || backendOrder.username || backendOrder.staff_username || backendOrder.created_by || 'Unknown',
+          createdBy: backendOrder.created_by_username || backendOrder.creator_username || backendOrder.username || backendOrder.staff_username || backendOrder.created_by?.toString() || 'Unknown',
           // Map editedBy field from backend
-          editedBy: backendOrder.edited_by_username || backendOrder.edited_by || backendOrder.last_edited_by || null,
+          editedBy: backendOrder.edited_by_username || backendOrder.editor_username || backendOrder.edited_by || backendOrder.last_edited_by || null,
           selectedPackage: backendOrder.selected_package,
           packageName: backendOrder.package_name,
           // Custom order fields
@@ -3860,11 +3779,9 @@ export interface UpdateOrderRequest {
   editedBy: string;
 }
 
-export interface UpdateOrderResponse {
-  id: string;
+export interface UpdateOrderResponse extends Order {
+  // The backend returns the full order object after updating
   updatedAt: string;
-  editedBy: string;
-  total: number;
 }
 
 // Password verification API
