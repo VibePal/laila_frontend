@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useActivityTracker } from "@/hooks/useActivityTracker";
 import { Button } from "@/components/ui/button";
 import { 
   Users, 
@@ -37,6 +38,9 @@ const AdminDashboard = () => {
   const [activeSection, setActiveSection] = useState("cake-management");
 
   const navigate = useNavigate();
+  
+  // Track user activity for session management
+  useActivityTracker();
 
   useEffect(() => {
     const email = localStorage.getItem("userEmail");

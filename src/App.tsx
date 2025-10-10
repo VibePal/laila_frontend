@@ -9,6 +9,7 @@ import Signup from "./pages/Signup";
 import AdminDashboard from "./pages/AdminDashboard";
 import StaffDashboard from "./pages/StaffDashboard";
 import NotFound from "./pages/NotFound";
+import AuthInitializer from "./components/AuthInitializer";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +18,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <AuthInitializer />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />

@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Eye, EyeOff } from "lucide-react";
+import { startTokenRefreshTimer, updateActivity } from "@/lib/dataService";
 
 const Login = () => {
   const [username, setUsername] = useState("");
@@ -64,6 +65,10 @@ const Login = () => {
           localStorage.setItem("tokenType", data.token_type || "Bearer");
           localStorage.setItem("tokenExpiresIn", data.expires_in?.toString() || "");
           console.log("Token stored successfully");
+          
+          // Start token refresh timer and activity tracking
+          startTokenRefreshTimer();
+          updateActivity();
         }
 
         // Store username for display purposes

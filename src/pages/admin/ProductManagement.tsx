@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 
 import { Input } from "@/components/ui/input";
@@ -95,7 +95,7 @@ interface Recipe {
 
 
 const ProductManagement = () => {
-
+  const { toast } = useToast();
   const [activeProductTab, setActiveProductTab] = useState("products");
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -120,6 +120,15 @@ const ProductManagement = () => {
 
     date: new Date().toISOString().split('T')[0]
 
+  });
+
+  // Custom product state
+  const [isCustomProductDialogOpen, setIsCustomProductDialogOpen] = useState(false);
+  const [customProduct, setCustomProduct] = useState({
+    name: "",
+    costPrice: "",
+    sellingPrice: "",
+    quantity: ""
   });
 
   const [productDateFilter, setProductDateFilter] = useState(new Date().toISOString().split('T')[0]);
@@ -321,23 +330,15 @@ const ProductManagement = () => {
         // New format - calculate from cost per unit
         return total + (ingredient.cost_per_unit * ingredient.quantity);
       } else if ((ingredient as any).ingredientId) {
-        // Old format - find supply expense and calculate cost
-        const supplyExpense = expenses.find(expense => 
-          expense.category === "Supply" && 
-          expense.id === (ingredient as any).ingredientId
-        );
+        // Old format - use calculateIngredientCost for proper unit conversion
+        const ingredientId = (ingredient as any).ingredientId;
+        const quantity = (ingredient as any).quantity || 0;
+        const unit = (ingredient as any).unit || 'kg'; // Default to kg if no unit specified
         
-        if (supplyExpense) {
-          return total + ((supplyExpense.pricePerUnit || 0) * (ingredient as any).quantity);
-        } else {
-          // Fallback: try to find any supply expense
-          const allSupplyExpenses = expenses.filter(exp => exp.category === "Supply");
-          if (allSupplyExpenses.length > 0) {
-            const fallbackExpense = allSupplyExpenses[0];
-            return total + ((fallbackExpense.pricePerUnit || 0) * (ingredient as any).quantity);
-          }
-        }
-        return total;
+        const cost = calculateIngredientCost(ingredientId, quantity, unit);
+        console.log(`🔵 calculateRecipeTotalCost: Old format ingredient cost = ₵${cost}`);
+        
+        return total + cost;
       }
       return total;
     }, 0);
@@ -423,33 +424,50 @@ const ProductManagement = () => {
 
     let basePricePerUnit = mostRecentSupply.pricePerUnit || 0;
 
-    
+    console.log(`💰 COST CALCULATION for ${item.name}:`, {
+      itemName: item.name,
+      quantity: quantity,
+      recipeUnit: unit,
+      expensePurchaseUnit: mostRecentSupply.purchaseUnit,
+      expensePricePerUnit: mostRecentSupply.pricePerUnit,
+      expenseCostPerItem: mostRecentSupply.costPerItem,
+      expensePackageSize: mostRecentSupply.packageSize
+    });
 
     if (unit !== mostRecentSupply.purchaseUnit) {
 
       if (mostRecentSupply.purchaseUnit === 'kg' && unit === 'g') {
 
-        basePricePerUnit = mostRecentSupply.pricePerUnit / 1000;
+        basePricePerUnit = mostRecentSupply.pricePerUnit / 1000; // Convert price per kg to price per g
+        console.log(`💰 Unit conversion: kg→g, ${mostRecentSupply.pricePerUnit}/kg → ${basePricePerUnit}/g`);
 
       } else if (mostRecentSupply.purchaseUnit === 'L' && unit === 'ml') {
 
-        basePricePerUnit = mostRecentSupply.pricePerUnit / 1000;
+        basePricePerUnit = mostRecentSupply.pricePerUnit / 1000; // Convert price per L to price per ml
+        console.log(`💰 Unit conversion: L→ml, ${mostRecentSupply.pricePerUnit}/L → ${basePricePerUnit}/ml`);
 
       } else if (mostRecentSupply.purchaseUnit === 'g' && unit === 'kg') {
 
-        basePricePerUnit = mostRecentSupply.pricePerUnit * 1000;
+        basePricePerUnit = mostRecentSupply.pricePerUnit * 1000; // Convert price per g to price per kg
+        console.log(`💰 Unit conversion: g→kg, ${mostRecentSupply.pricePerUnit}/g → ${basePricePerUnit}/kg`);
 
       } else if (mostRecentSupply.purchaseUnit === 'ml' && unit === 'L') {
 
-        basePricePerUnit = mostRecentSupply.pricePerUnit * 1000;
+        basePricePerUnit = mostRecentSupply.pricePerUnit * 1000; // Convert price per ml to price per L
+        console.log(`💰 Unit conversion: ml→L, ${mostRecentSupply.pricePerUnit}/ml → ${basePricePerUnit}/L`);
 
       }
 
     }
 
+    const totalCost = quantity * basePricePerUnit;
+    console.log(`💰 FINAL COST for ${item.name}: ${quantity}${unit} × ₵${basePricePerUnit} = ₵${totalCost}`);
+    
+    if (totalCost > 1000) {
+      console.error(`🚨 ALERT: Suspiciously high cost (₵${totalCost}) for ${item.name}! Check expense data!`);
+    }
 
-
-    return quantity * basePricePerUnit;
+    return totalCost;
 
   };
 
@@ -521,25 +539,55 @@ const ProductManagement = () => {
 
       if (quantity > 0) {
 
-        const recipeIngredient: RecipeIngredient = {
+        // Check if ingredient already exists in the recipe
+        const existingIngredientIndex = newRecipe.ingredients.findIndex(
+          ingredient => ingredient.ingredientId === newRecipeIngredient.ingredientId
+        );
 
-          ingredientId: newRecipeIngredient.ingredientId,
+        if (existingIngredientIndex >= 0) {
+          // Merge quantities for existing ingredient
+          const existingIngredient = newRecipe.ingredients[existingIngredientIndex];
+          const mergedQuantity = existingIngredient.quantity + quantity;
+          
+          const updatedIngredients = [...newRecipe.ingredients];
+          updatedIngredients[existingIngredientIndex] = {
+            ...existingIngredient,
+            quantity: mergedQuantity
+          };
 
-          quantity: quantity,
+          setNewRecipe({
+            ...newRecipe,
+            ingredients: updatedIngredients
+          });
 
-          unit: newRecipeIngredient.unit
+          // Show feedback to user
+          const item = items.find(item => item.id === newRecipeIngredient.ingredientId);
+          toast({
+            title: "Ingredient Merged",
+            description: `"${item?.name || 'Unknown'}" already exists. Quantities merged: ${existingIngredient.quantity} + ${quantity} = ${mergedQuantity} ${newRecipeIngredient.unit}`,
+            variant: "default"
+          });
+        } else {
+          // Add new ingredient
+          const recipeIngredient: RecipeIngredient = {
+            ingredientId: newRecipeIngredient.ingredientId,
+            quantity: quantity,
+            unit: newRecipeIngredient.unit
+          };
 
-        };
+          setNewRecipe({
+            ...newRecipe,
+            ingredients: [...newRecipe.ingredients, recipeIngredient]
+          });
 
-        
-
-        setNewRecipe({
-
-          ...newRecipe,
-
-          ingredients: [...newRecipe.ingredients, recipeIngredient]
-
-        });
+          // Show success feedback
+          const item = items.find(item => item.id === newRecipeIngredient.ingredientId);
+          toast({
+            title: "Ingredient Added",
+            description: `"${item?.name || 'Unknown'}" added to recipe: ${quantity} ${newRecipeIngredient.unit}`,
+            variant: "default"
+          });
+        }
 
         
 
@@ -780,7 +828,82 @@ const ProductManagement = () => {
     }
   };
 
+  // Custom product management functions
+  const handleAddCustomProduct = async () => {
+    if (customProduct.name && customProduct.costPrice && customProduct.sellingPrice && customProduct.quantity) {
+      const costPrice = parseFloat(customProduct.costPrice);
+      const sellingPrice = parseFloat(customProduct.sellingPrice);
+      const quantity = parseInt(customProduct.quantity);
 
+      if (costPrice < 0 || sellingPrice < 0 || quantity <= 0) {
+        toast({
+          title: "Validation Error",
+          description: "Cost price and selling price must be non-negative, and quantity must be positive.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      if (sellingPrice < costPrice) {
+        toast({
+          title: "Warning",
+          description: "Selling price is less than cost price. This may result in a loss.",
+          variant: "destructive"
+        });
+      }
+
+      const productData: ProductApiRequest = {
+        name: customProduct.name,
+        unitPrice: sellingPrice,
+        costPerUnit: costPrice,
+        quantity: quantity,
+        isAvailable: true,
+        isActive: true,
+        date: new Date().toISOString(),
+        isCustom: true // Flag to indicate this is a custom product
+      };
+
+      try {
+        console.log("🔵 Creating custom product with data:", productData);
+        const response = await createProductAPI(productData);
+        
+        if (response.success) {
+          console.log("✅ Custom product created successfully:", response.data);
+          await loadProducts(); // Reload products from API
+          
+          // Reset form
+          setCustomProduct({ name: "", costPrice: "", sellingPrice: "", quantity: "" });
+          setIsCustomProductDialogOpen(false);
+          
+          toast({
+            title: "Custom Product Added",
+            description: `"${customProduct.name}" has been added to your products.`,
+            variant: "default"
+          });
+        } else {
+          console.error("❌ Error creating custom product:", response.error);
+          toast({
+            title: "Error",
+            description: `Failed to create custom product: ${response.error}`,
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        console.error("❌ Exception creating custom product:", error);
+        toast({
+          title: "Error",
+          description: "Failed to create custom product. Please try again.",
+          variant: "destructive"
+        });
+      }
+    } else {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleEditProduct = async () => {
     if (editingProduct && newProduct.name && newProduct.unitPrice && newProduct.quantity) {
@@ -1186,6 +1309,106 @@ const ProductManagement = () => {
 
         </Dialog>
 
+        {/* Custom Product Dialog */}
+        <Dialog open={isCustomProductDialogOpen} onOpenChange={setIsCustomProductDialogOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              <Plus className="h-4 w-4 mr-2" />
+              Custom Product
+            </Button>
+          </DialogTrigger>
+
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Add Custom Product</DialogTitle>
+              <DialogDescription>
+                Create a custom product with your own cost and selling prices
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="custom-product-name">Product Name *</Label>
+                <Input
+                  id="custom-product-name"
+                  value={customProduct.name}
+                  onChange={(e) => setCustomProduct({...customProduct, name: e.target.value})}
+                  placeholder="Enter product name"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="custom-cost-price">Cost Price (₵) *</Label>
+                  <Input
+                    id="custom-cost-price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={customProduct.costPrice}
+                    onChange={(e) => setCustomProduct({...customProduct, costPrice: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="custom-selling-price">Selling Price (₵) *</Label>
+                  <Input
+                    id="custom-selling-price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={customProduct.sellingPrice}
+                    onChange={(e) => setCustomProduct({...customProduct, sellingPrice: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="custom-quantity">Quantity *</Label>
+                <Input
+                  id="custom-quantity"
+                  type="number"
+                  min="1"
+                  value={customProduct.quantity}
+                  onChange={(e) => setCustomProduct({...customProduct, quantity: e.target.value})}
+                  placeholder="Enter quantity"
+                />
+              </div>
+
+              {/* Profit/Loss Preview */}
+              {customProduct.costPrice && customProduct.sellingPrice && (
+                <div className="p-3 bg-muted rounded-lg">
+                  <div className="flex justify-between text-sm">
+                    <span>Cost Price:</span>
+                    <span>₵{parseFloat(customProduct.costPrice || '0').toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Selling Price:</span>
+                    <span>₵{parseFloat(customProduct.sellingPrice || '0').toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium border-t pt-1 mt-1">
+                    <span>Profit/Loss per unit:</span>
+                    <span className={parseFloat(customProduct.sellingPrice || '0') >= parseFloat(customProduct.costPrice || '0') ? 'text-green-600' : 'text-red-600'}>
+                      ₵{(parseFloat(customProduct.sellingPrice || '0') - parseFloat(customProduct.costPrice || '0')).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button variant="outline" onClick={() => setIsCustomProductDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddCustomProduct}>
+                Add Custom Product
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
       </div>
 
 
@@ -1217,6 +1440,12 @@ const ProductManagement = () => {
                         {product.isAvailable ? "Available" : "Not Available"}
 
                       </Badge>
+
+                      {(product as any).isCustom && (
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          Custom
+                        </Badge>
+                      )}
 
                     </div>
 
@@ -2033,8 +2262,12 @@ const ProductManagement = () => {
                                     if (supplyExpense) {
                                       console.log('🔵 Found supply expense:', supplyExpense);
                                       itemName = supplyExpense.items;
-                                      // Calculate cost from the supply expense
-                                      ingredientCost = (supplyExpense.pricePerUnit || 0) * recipeIngredient.quantity;
+                                      // Calculate cost using proper unit conversion
+                                      ingredientCost = calculateIngredientCost(
+                                        (recipeIngredient as any).ingredientId, 
+                                        recipeIngredient.quantity, 
+                                        recipeIngredient.unit || 'kg'
+                                      );
                                     } else {
                                       console.log('🔵 Supply expense not found, trying alternative lookup');
                                       // Alternative: try to find by looking at all supply expenses
@@ -2045,7 +2278,12 @@ const ProductManagement = () => {
                                         // Use the first available supply item as fallback
                                         const fallbackExpense = allSupplyExpenses[0];
                                         itemName = fallbackExpense.items;
-                                        ingredientCost = (fallbackExpense.pricePerUnit || 0) * recipeIngredient.quantity;
+                                        // Calculate cost using proper unit conversion
+                                        ingredientCost = calculateIngredientCost(
+                                          (recipeIngredient as any).ingredientId, 
+                                          recipeIngredient.quantity, 
+                                          recipeIngredient.unit || 'kg'
+                                        );
                                         console.log('🔵 Using fallback supply expense:', fallbackExpense);
                                       } else {
                                         // Last resort: use a default name and zero cost
@@ -2092,14 +2330,29 @@ const ProductManagement = () => {
 
                                   <span>Total Cost:</span>
 
-                                  <span>₵{(recipe.total_cost || calculateRecipeTotalCost(recipe)).toFixed(2)}</span>
+                                  <span>₵{(() => {
+                                    const backendCost = recipe.total_cost;
+                                    const frontendCost = calculateRecipeTotalCost(recipe);
+                                    const finalCost = backendCost || frontendCost;
+                                    
+                                    console.log(`🔵 Recipe ${recipe.name} cost calculation:`, {
+                                      backendCost,
+                                      frontendCost,
+                                      finalCost,
+                                      hasBackendData: !!backendCost
+                                    });
+                                    
+                                    return finalCost.toFixed(2);
+                                  })()}</span>
                                 </div>
 
                                 <div className="border-t pt-2 flex justify-between font-bold text-lg">
 
                                   <span>Cost per {recipe.yield_unit_label || 'unit'}:</span>
                                   <span>₵{(() => {
-                                    const totalCost = recipe.total_cost || calculateRecipeTotalCost(recipe);
+                                    const backendCost = recipe.total_cost;
+                                    const frontendCost = calculateRecipeTotalCost(recipe);
+                                    const totalCost = backendCost || frontendCost;
                                     const yieldQuantity = (recipe as any).yieldQuantity || recipe.yield_quantity || 1;
                                     console.log('🔵 Cost per unit calculation:', { totalCost, yieldQuantity, recipe });
                                     return (totalCost / yieldQuantity).toFixed(2);

@@ -377,6 +377,15 @@ export const clearAllData = (): void => {
 export { STORAGE_KEYS };
 
 // Authentication helper functions
+// Token refresh and session management
+let refreshTimer: NodeJS.Timeout | null = null;
+let inactivityTimer: NodeJS.Timeout | null = null;
+let lastActivityTime: number = Date.now();
+
+// Constants for token management
+const TOKEN_REFRESH_INTERVAL = 25 * 60 * 1000; // 25 minutes in milliseconds
+const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
 export const getAuthToken = (): string | null => {
   return localStorage.getItem("authToken");
 };
@@ -393,6 +402,94 @@ export const getAuthHeaders = (): HeadersInit => {
   }
   
   return headers;
+};
+
+// Update last activity time and reset inactivity timer
+export const updateActivity = (): void => {
+  lastActivityTime = Date.now();
+  resetInactivityTimer();
+};
+
+// Reset inactivity timer
+const resetInactivityTimer = (): void => {
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+  }
+  
+  inactivityTimer = setTimeout(() => {
+    console.log("🕐 User inactive for 30 minutes, logging out...");
+    logout();
+    // Redirect to login page
+    window.location.href = '/login';
+  }, INACTIVITY_TIMEOUT);
+};
+
+// Refresh token function
+export const refreshToken = async (): Promise<boolean> => {
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (!apiUrl) {
+      throw new Error("API URL not configured");
+    }
+
+    const response = await fetch(`${apiUrl}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      
+      if (data.access_token) {
+        // Update stored token
+        localStorage.setItem("authToken", data.access_token);
+        localStorage.setItem("tokenType", data.token_type || "Bearer");
+        localStorage.setItem("tokenExpiresIn", data.expires_in?.toString() || "");
+        
+        console.log("✅ Token refreshed successfully");
+        return true;
+      }
+    } else {
+      console.log("❌ Token refresh failed:", response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error("❌ Token refresh error:", error);
+    return false;
+  }
+  
+  return false;
+};
+
+// Start token refresh timer
+export const startTokenRefreshTimer = (): void => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+  }
+  
+  refreshTimer = setInterval(async () => {
+    console.log("🔄 Attempting to refresh token...");
+    const success = await refreshToken();
+    
+    if (!success) {
+      console.log("❌ Token refresh failed, logging out...");
+      logout();
+      window.location.href = '/login';
+    }
+  }, TOKEN_REFRESH_INTERVAL);
+};
+
+// Stop token refresh timer
+export const stopTokenRefreshTimer = (): void => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+  
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
 };
 
 // Debug function to check authentication status
@@ -420,6 +517,9 @@ export const makeAuthenticatedRequest = async (
   url: string, 
   options: RequestInit = {}
 ): Promise<Response> => {
+  // Update activity on any API request
+  updateActivity();
+  
   const apiUrl = import.meta.env.VITE_API_URL;
   if (!apiUrl) {
     console.error('❌ API URL not configured. Please check your environment variables.');
@@ -465,8 +565,33 @@ export const makeAuthenticatedRequest = async (
   }
 
   console.log('🔵 About to make fetch request to:', fullUrl);
-  const response = await fetch(fullUrl, requestOptions);
+  let response = await fetch(fullUrl, requestOptions);
   console.log('🔵 Fetch request completed, response status:', response.status);
+  
+  // Handle 401 Unauthorized - try to refresh token
+  if (response.status === 401 && !url.includes('/auth/refresh')) {
+    console.log('🔄 Received 401, attempting token refresh...');
+    const refreshSuccess = await refreshToken();
+    
+    if (refreshSuccess) {
+      console.log('✅ Token refreshed, retrying original request...');
+      // Retry the original request with new token
+      const retryOptions: RequestInit = {
+        ...options,
+        headers: {
+          ...getAuthHeaders(),
+          ...options.headers,
+        },
+      };
+      response = await fetch(fullUrl, retryOptions);
+      console.log('🔵 Retry request completed, response status:', response.status);
+    } else {
+      console.log('❌ Token refresh failed, user will need to log in again');
+      logout();
+      window.location.href = '/login';
+      return response; // Return the original 401 response
+    }
+  }
   
   // Log response details for debugging - DON'T consume the body
   if (!response.ok) {
@@ -482,6 +607,10 @@ export const makeAuthenticatedRequest = async (
 };
 
 export const logout = (): void => {
+  // Stop all timers
+  stopTokenRefreshTimer();
+  
+  // Clear localStorage
   localStorage.removeItem("authToken");
   localStorage.removeItem("tokenType");
   localStorage.removeItem("tokenExpiresIn");
@@ -489,6 +618,8 @@ export const logout = (): void => {
   localStorage.removeItem("userEmail");
   localStorage.removeItem("username");
   localStorage.removeItem("userId");
+  
+  console.log("🚪 User logged out");
 };
 
 export const checkAuthStatus = (): boolean => {
@@ -2689,6 +2820,7 @@ export interface ProductApiRequest {
   isAvailable: boolean;
   isActive: boolean;
   date: string;
+  isCustom?: boolean; // Optional flag to indicate custom products
 }
 
 export interface ProductApiResponse {
